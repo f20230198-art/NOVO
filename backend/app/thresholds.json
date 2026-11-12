@@ -1,0 +1,12 @@
+{
+  "non_motorised": {"wave_caution": 1.0, "wave_unsafe": 1.5, "wind_caution": 20, "wind_unsafe": 30, "gust_unsafe": 40},
+  "motorised":     {"wave_caution": 1.5, "wave_unsafe": 2.5, "wind_caution": 30, "wind_unsafe": 40, "gust_unsafe": 55},
+  "mechanised":    {"wave_caution": 2.5, "wave_unsafe": 3.5, "wind_caution": 40, "wind_unsafe": 50, "gust_unsafe": 70},
+  "steep_wave_period_s": 6,
+  "heavy_rain_mm": 7.5,
+  "thunderstorm_codes": [95, 96, 99],
+  "report_radius_km": 10,
+  "risk_report_types": ["rough_sea", "storm", "harbour_mouth_rough", "strong_current", "debris", "oil_spill", "boat_in_trouble"],
+  "warning_overrides": true,
+  "_sources": "Starting values based on the Beaufort scale and the WMO sea-state table; to be validated with fishers."
+}
