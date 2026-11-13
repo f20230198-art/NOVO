@@ -34,6 +34,8 @@ export default function ProfileScreen() {
         cancelled = true;
         clearInterval(id);
       };
+    // contacts.length: fetch the family codes again after a contact is added or removed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [profile?.token, contacts.length]),
   );
 

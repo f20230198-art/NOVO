@@ -68,8 +68,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Latest values for callbacks that outlive a render.
   const profileRef = useRef<Profile | null>(null);
   const contactsRef = useRef<Contact[]>([]);
-  profileRef.current = profile;
-  contactsRef.current = contacts;
+  // Synced after render (not during it); persistProfile/persistContacts also set them at once.
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+  useEffect(() => {
+    contactsRef.current = contacts;
+  }, [contacts]);
 
   const persistProfile = useCallback(async (next: Profile | null) => {
     profileRef.current = next;

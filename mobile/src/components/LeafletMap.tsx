@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
+import { useApp } from '../lib/store';
+
 export type MapMarker = {
   id: string;
   lat: number;
@@ -95,7 +97,7 @@ const HTML = `<!doctype html>
   .sea { transition: opacity .25s ease; }
 </style>
 </head><body>
-<div id="offline">Map needs an internet connection.</div>
+<div id="offline"></div>
 <div id="map"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
@@ -103,7 +105,12 @@ const HTML = `<!doctype html>
   function post(msg) { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(msg)); }
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
   function init(state) {
-    if (typeof L === 'undefined') { document.getElementById('offline').style.display = 'block'; return; }
+    if (typeof L === 'undefined') {
+      var off = document.getElementById('offline');
+      off.textContent = state.offlineText || 'Map needs an internet connection.';
+      off.style.display = 'block';
+      return;
+    }
     map = L.map('map', { zoomControl: !state.hideZoomButtons, attributionControl: true }).setView([state.center.lat, state.center.lon], state.zoom);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap' }).addTo(map);
     layer = L.layerGroup().addTo(map);
@@ -322,6 +329,8 @@ export function LeafletMap({
   onMarkerPress,
   style,
 }: Props) {
+  const { t } = useApp();
+  const offlineText = t('mapOffline');
   // WebView's default type parameter is `undefined`, which collapses its props to `never`.
   const web = useRef<WebView<object>>(null);
   const ready = useRef(false);
@@ -343,8 +352,9 @@ export function LeafletMap({
       hideZoomButtons: !!hideZoomButtons,
       bottomInset,
       paused,
+      offlineText,
     }),
-    [center, zoom, markers, pin, me, sea, seaKey, seaMode, recenterKey, hideZoomButtons, bottomInset, paused],
+    [center, zoom, markers, pin, me, sea, seaKey, seaMode, recenterKey, hideZoomButtons, bottomInset, paused, offlineText],
   );
 
   const push = () => {

@@ -11,23 +11,35 @@ import { notifyAt } from '../../lib/notifications';
 import { speak, startListening, stopSpeaking, voiceInputAvailable } from '../../lib/speech';
 import { useApp } from '../../lib/store';
 import { TOUCH, colors } from '../../lib/theme';
-import type { AssistantTurn, ScheduledTrip } from '../../lib/types';
+import type { AssistantTurn, Lang, ScheduledTrip } from '../../lib/types';
 
-// English only for now; Malayalam voice comes later.
-const VOICE_LANG = 'en' as const;
 const HOUR = 60 * 60 * 1000;
 const PERSONA = 'Meera';
-// The voice assistant is English-only, so these stay out of i18n for now.
-const GREETING = `Hi, I'm ${PERSONA}. Ask me how the sea looks, hour by hour, or tell me about your trip.`;
-const SUGGESTIONS = [
-  'When should I go tomorrow?',
-  'Is 4 AM ok tomorrow?',
-  'How are the waves tomorrow morning?',
-  'Plan a trip tomorrow, 5 AM to 11 AM',
-  'What trips do I have?',
-  'I need another hour',
-  'What are fishers saying at the harbour?',
-];
+// The assistant speaks and listens in English or Malayalam (the app language).
+const GREETING: Record<Lang, string> = {
+  en: `Hi, I'm ${PERSONA}. Ask me how the sea looks, hour by hour, or tell me about your trip.`,
+  ml: 'നമസ്കാരം, ഞാൻ മീര. കടൽ മണിക്കൂർ തോറും എങ്ങനെയെന്ന് ചോദിക്കൂ, അല്ലെങ്കിൽ നിങ്ങളുടെ യാത്രയെക്കുറിച്ച് പറയൂ.',
+};
+const SUGGESTIONS: Record<Lang, string[]> = {
+  en: [
+    'When should I go tomorrow?',
+    'Is 4 AM ok tomorrow?',
+    'How are the waves tomorrow morning?',
+    'Plan a trip tomorrow, 5 AM to 11 AM',
+    'What trips do I have?',
+    'I need another hour',
+    'What are fishers saying at the harbour?',
+  ],
+  ml: [
+    'നാളെ എപ്പോൾ പോകണം?',
+    'നാളെ രാവിലെ 5 മണിക്ക് പോകാമോ?',
+    'നാളെ രാവിലെ തിര എങ്ങനെയുണ്ട്?',
+    'നാളെ രാവിലെ 5 മുതൽ 11 വരെ ഒരു യാത്ര പ്ലാൻ ചെയ്യൂ',
+    'എന്റെ യാത്രകൾ ഏതൊക്കെ?',
+    'ഒരു മണിക്കൂർ കൂടി വേണം',
+    'ഹാർബറിൽ മത്സ്യത്തൊഴിലാളികൾ എന്താണ് പറയുന്നത്?',
+  ],
+};
 
 /** Phone-side reminder an hour before a confirmed trip, so it rings even with no signal. */
 function remindLocally(s: ScheduledTrip, t: ReturnType<typeof useApp>['t']): void {
@@ -39,6 +51,7 @@ export default function AssistantScreen() {
   const { profile, t, ensureRegistered } = useApp();
   const token = profile?.token;
   const router = useRouter();
+  const lang: Lang = profile?.language === 'ml' ? 'ml' : 'en';
 
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
   const [scheduled, setScheduled] = useState<ScheduledTrip[]>([]);
@@ -51,9 +64,17 @@ export default function AssistantScreen() {
   const [voiceOut, setVoiceOut] = useState(true);
   const [speaking, setSpeaking] = useState(false);
 
-  const talk = useCallback((line: string) => {
-    speak(line, VOICE_LANG, { onStart: () => setSpeaking(true), onDone: () => setSpeaking(false) });
-  }, []);
+  const talk = useCallback(
+    (line: string) => {
+      speak(line, lang, {
+        onStart: () => setSpeaking(true),
+        onDone: () => setSpeaking(false),
+        // No voice for this language on the phone: the reply stays on screen, with a one-line note.
+        onUnavailable: () => setError((cur) => cur ?? t('voiceNotInstalled')),
+      });
+    },
+    [lang, t],
+  );
   const hush = useCallback(() => {
     stopSpeaking();
     setSpeaking(false);
@@ -100,7 +121,7 @@ export default function AssistantScreen() {
       setTurns((prev) => [...prev, { id: `u${Date.now()}`, role: 'user', text: message }]);
       try {
         if (!token && !(await ensureRegistered())) throw new ApiError(t('noConnection'), 0, true);
-        const out = await api.assistantChat(message);
+        const out = await api.assistantChat(message, lang);
         setTurns((prev) => [...prev, { id: `a${Date.now()}`, role: 'assistant', text: out.reply }]);
         setScheduled(out.scheduled);
         setProposal(out.proposal?.status === 'proposed' ? out.proposal : null);
@@ -117,7 +138,7 @@ export default function AssistantScreen() {
         setBusy(false);
       }
     },
-    [busy, ensureRegistered, hush, token, t, talk, voiceOut],
+    [busy, ensureRegistered, hush, lang, token, t, talk, voiceOut],
   );
 
   const micDown = async () => {
@@ -127,7 +148,7 @@ export default function AssistantScreen() {
     heardRef.current = '';
     releasedRef.current = false;
     setListening(true);
-    const stop = await startListening(VOICE_LANG, {
+    const stop = await startListening(lang, {
       onText: (heard) => {
         heardRef.current = heard;
         setText(heard);
@@ -193,13 +214,13 @@ export default function AssistantScreen() {
           </View>
           <View>
             <Text style={styles.title}>{PERSONA}</Text>
-            <Text style={styles.subtitle}>{speaking ? 'Speaking… tap to stop' : t('assistantTitle')}</Text>
+            <Text style={styles.subtitle}>{speaking ? t('assistantSpeaking') : t('assistantTitle')}</Text>
           </View>
         </View>
         {speaking ? (
-          <Pressable onPress={hush} accessibilityRole="button" accessibilityLabel="Stop speaking" style={[styles.clear, styles.iconRow]}>
+          <Pressable onPress={hush} accessibilityRole="button" accessibilityLabel={t('stopSpeaking')} style={[styles.clear, styles.iconRow]}>
             <Icon name="speaker" size={20} color={colors.inkSoft} />
-            <Text style={styles.clearText}>Stop</Text>
+            <Text style={styles.clearText}>{t('stopSpeaking')}</Text>
           </Pressable>
         ) : (
           <Pressable onPress={clear} accessibilityRole="button" style={styles.clear}>
@@ -212,10 +233,10 @@ export default function AssistantScreen() {
         {turns.length === 0 ? (
           <View style={styles.welcome}>
             <View style={[styles.bubble, styles.theirs]}>
-              <Text style={styles.bubbleText}>{GREETING}</Text>
+              <Text style={styles.bubbleText}>{GREETING[lang]}</Text>
             </View>
             <View style={styles.chips}>
-              {SUGGESTIONS.map((s) => (
+              {SUGGESTIONS[lang].map((s) => (
                 <Pressable key={s} onPress={() => send(s)} disabled={busy} style={styles.chip} accessibilityRole="button">
                   <Text style={styles.chipText}>{s}</Text>
                 </Pressable>

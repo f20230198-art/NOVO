@@ -20,7 +20,9 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
  * keyboard, so the button would otherwise float over the text field being typed in.
  */
 function sosPlacement(keyboardUp: boolean, bottom: number): ViewStyle {
-  // TODO(human): decide what the SOS button does while the keyboard is open.
+  // While typing, the button moves to the top-right: still on screen and one tap away, but it
+  // no longer sits over the text field or the send button just above the keyboard.
+  if (keyboardUp) return { top: 56 };
   return { bottom };
 }
 
@@ -30,7 +32,7 @@ function sosPlacement(keyboardUp: boolean, bottom: number): ViewStyle {
  */
 export function SosButton({ bottom = 96 }: { bottom?: number }) {
   const { profile, contacts, trip, t } = useApp();
-  const progress = useRef(new Animated.Value(0)).current;
+  const [progress] = useState(() => new Animated.Value(0));
   const [holding, setHolding] = useState(false);
   // After an SOS, a one-tap call to the Coast Guard stays on screen.
   const [showCall, setShowCall] = useState(false);

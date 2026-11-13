@@ -62,6 +62,7 @@ export default function SeaWatch() {
   // Opened from the trip screen's "Report hazard" shortcut.
   useEffect(() => {
     if (params.report === '1') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSheet(true);
       router.setParams({ report: undefined });
     }
@@ -141,6 +142,7 @@ export default function SeaWatch() {
       <SectionTitle>{t('reportsNearby')}</SectionTitle>
       {reports.length === 0 ? <Text style={styles.empty}>{t('noReports')}</Text> : null}
       {reports.map((r) => {
+        // eslint-disable-next-line react-hooks/purity
         const left = new Date(r.expires_at).getTime() - Date.now();
         return (
           <Card key={r.id} style={{ opacity: 0.55 + 0.45 * r.life_left }}>

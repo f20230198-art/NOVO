@@ -30,6 +30,7 @@ from ..models import Alert, ChatMessage, Contact, Report, ScheduledTrip, Trip, U
 from ..templates import explanations as tx
 from ..thresholds import BOAT_TYPES, THRESHOLDS
 from . import community, escalation, forecast, social
+from .assistant_text import duration
 
 
 @dataclass
@@ -39,6 +40,12 @@ class Doc:
     text: str
     trusted: bool = True
     pinned: bool = False
+    text_ml: str = ""  # the same text in Malayalam, for the no-key path; empty when there is none
+
+
+def doc_text(d: "Doc", lang: str = "en") -> str:
+    """The document's text in the fisher's language (English when there is no Malayalam version)."""
+    return d.text_ml if lang == "ml" and d.text_ml else d.text
 
 
 # ---- tokenising and BM25 --------------------------------------------------
@@ -75,6 +82,31 @@ def tokens(text: str, expand: bool = False) -> list[str]:
 
 SYNONYM_WEIGHT = 0.5
 
+# Malayalam words in a question -> English search words, so a Malayalam question finds the right
+# document in the (English-indexed) corpus. Substring match: Malayalam has no word boundaries.
+_ML_TERMS = (
+    (("എസ്ഒഎസ്", "സോസ്", "രക്ഷ"), "sos emergency"),
+    (("കോസ്റ്റ് ഗാർഡ്", "കോസ്റ്റ്ഗാർഡ്", "1554"), "coast guard"),
+    (("വൈകി", "വൈകൽ", "ഓവർഡ്യൂ"), "late overdue"),
+    (("ഓട്ടോമാറ്റിക്", "തനിയെ", "സ്വയം"), "automatic sos"),
+    (("സിഗ്നൽ", "നെറ്റ്‌വർക്ക്", "റേഞ്ച്"), "signal"),
+    (("ഷെഡ്യൂൾ", "പ്ലാൻ", "ബുക്ക്"), "schedule plan trip"),
+    (("റിപ്പോർട്ട്", "സീ വാച്ച്"), "report hazard"),
+    (("കമ്മ്യൂണിറ്റി", "ചാറ്റ്", "പരിപാടി", "ഇവന്റ്"), "community chat event"),
+    (("ലൈഫ് ജാക്കറ്റ്", "കൊണ്ടുപോകേണ്ട", "കരുതേണ്ട"), "carry safety life jacket"),
+    (("സുരക്ഷിത", "അപകട", "ജാഗ്രത", "അർത്ഥം"), "safe unsafe caution verdict"),
+    (("പരിധി", "എത്ര തിര", "എത്ര കാറ്റ്"), "limits waves wind"),
+    (("കോൺടാക്ട്", "കുടുംബ", "ഭാര്യ"), "contact family"),
+    (("പ്രൊഫൈൽ", "എന്റെ വള്ളം", "എന്റെ പേര്"), "profile boat"),
+    (("തിരിച്ചെത്ത", "മടങ്ങ", "തിരിച്ചുവ"), "back return"),
+    (("കൂടുതൽ സമയം", "സമയം നീട്ട"), "more time"),
+    (("ഹെഡ് ബാക്ക്", "തിരിച്ചുപോ"), "head back"),
+)
+
+
+def ml_terms(query: str) -> str:
+    q = query or ""
+    return " ".join(words for keys, words in _ML_TERMS if any(k in q for k in keys))
 
 class BM25:
     def __init__(self, docs: list[Doc], k1: float = 1.4, b: float = 0.75):
@@ -91,6 +123,7 @@ class BM25:
 
     def scores(self, query: str) -> list[float]:
         # Words the fisher said count fully; synonyms count half, and each term only once.
+        query = f"{query} {ml_terms(query)}"
         said = tokens(query)
         weights = {t: 1.0 for t in said}
         for t in tokens(query, expand=True)[len(said):]:
@@ -121,6 +154,48 @@ def _when(dt: Optional[datetime], tz: timezone) -> str:
         return "unknown"
     local = as_utc(dt).astimezone(tz)
     return f"{local.strftime('%a %d %b')} {tx.fmt_time(local, 'en')}"
+
+
+# Everyday spoken Malayalam versions of the knowledge base, for the no-key path. Numbers come
+# from thresholds.json exactly as in the English text. A native speaker should review these.
+_KB_ML = {
+    "kb:sos": ("ചുവന്ന SOS ബട്ടൺ 2 സെക്കൻഡ് അമർത്തിപ്പിടിക്കുക. ഫോൺ നിങ്ങളുടെ എല്ലാ അടിയന്തര കോൺടാക്ടുകൾക്കും നിങ്ങളുടെ "
+               "സ്ഥാനം സഹിതം ഒരു SMS തുറക്കും; സെർവറിൽ എത്താൻ പറ്റിയാൽ അവിടെ നിന്നും അവരെ അറിയിക്കും. SMS പോകാൻ ഫോൺ "
+               "സിഗ്നൽ വേണം. സ്ഥാനം ലൈവ് GPS ആണോ, അവസാനം അറിഞ്ഞതാണോ, വീട്ടിലെ ഹാർബർ മാത്രമാണോ എന്ന് സന്ദേശത്തിൽ പറയും. "
+               "SOS കഴിഞ്ഞാൽ ഒറ്റ ടാപ്പിൽ കോസ്റ്റ് ഗാർഡിനെ 1554-ൽ വിളിക്കാം."),
+    "kb:coastguard": ("ഇന്ത്യയിൽ കടലിലെ അടിയന്തര സഹായത്തിനുള്ള കോസ്റ്റ് ഗാർഡ് നമ്പർ 1554 ആണ്. വള്ളം മുങ്ങുക, തീ പിടിക്കുക, "
+                      "കരയിൽ നിന്ന് അകലെ എഞ്ചിൻ നിൽക്കുക, ആരെങ്കിലും വെള്ളത്തിൽ വീഴുക, പരിക്ക്, വഴി തെറ്റുക എന്നിവയ്ക്കെല്ലാം വിളിക്കൂ."),
+    "kb:overdue": ("യാത്ര തുടങ്ങുമ്പോൾ തിരിച്ചെത്തേണ്ട സമയം വെക്കണം. അതിന് 30 മിനിറ്റ് കഴിഞ്ഞാൽ (ഗ്രേസ് സമയം) Sea Safe "
+                   "'തിരിച്ചെത്തിയോ?' എന്ന് ചോദിക്കും. 'I'm back' അല്ലെങ്കിൽ 'More time' അമർത്തുക. ഉത്തരം തന്നില്ലെങ്കിൽ "
+                   "നിങ്ങൾ തിരിച്ചെത്തിയില്ല എന്ന് അവസാനം അറിഞ്ഞ സ്ഥാനവും കടലിന്റെ അവസ്ഥയും സഹിതം നിങ്ങളുടെ അടിയന്തര "
+                   "കോൺടാക്ടുകൾക്ക് SMS പോകും."),
+    "kb:more_time": ("പോകുന്നതിന് മുമ്പ് യഥാർത്ഥമായ തിരിച്ചെത്തൽ സമയം വെക്കുക. യാത്ര നീളുമെങ്കിൽ സിഗ്നൽ ഉള്ളപ്പോൾ തന്നെ "
+                     "'More time' അമർത്തുക; ഓരോ തവണയും 30 മിനിറ്റ് കൂടും, നേരത്തെ അലർട്ട് പോയിട്ടുണ്ടെങ്കിൽ നിങ്ങൾ സുരക്ഷിതനാണ് "
+                     "എന്ന് കോൺടാക്ടുകളെ അറിയിക്കും. സിഗ്നൽ ഇല്ലെങ്കിലും യാത്ര തുടങ്ങിയപ്പോൾ സേവ് ചെയ്ത കാലാവസ്ഥ ആപ്പ് "
+                     "കാണിക്കുകയും തിരിച്ചുപോകാനുള്ള അലാറം മുഴക്കുകയും ചെയ്യും."),
+    "kb:head_back": ("യാത്രയ്ക്കിടെ അടുത്ത 2 മണിക്കൂറിൽ നിങ്ങളുടെ വള്ളത്തിന് കാലാവസ്ഥ അപകടമാകുമെങ്കിൽ കാരണം സഹിതം Sea Safe "
+                     "'ഇപ്പോൾ തിരിച്ചുപോകൂ' എന്ന് അറിയിക്കും. സിഗ്നൽ ഇല്ലെങ്കിൽ തുടങ്ങിയപ്പോൾ സേവ് ചെയ്ത കാലാവസ്ഥയിൽ നിന്ന് ഫോൺ "
+                     "മുന്നറിയിപ്പ് നൽകും."),
+    "kb:schedule": ("യാത്ര ശബ്ദത്തിലൂടെ ഷെഡ്യൂൾ ചെയ്യാം: ദിവസവും പോകുന്ന സമയവും തിരിച്ചെത്തുന്ന സമയവും പറയുക, ഉദാഹരണത്തിന് "
+                    "'നാളെ രാവിലെ 5-ന് പോയി 11-ന് തിരിച്ചെത്തും'. Sea Safe ആ മണിക്കൂറുകൾ റിസ്ക് എഞ്ചിൻ കൊണ്ട് പരിശോധിക്കും. "
+                    "അപകടമായ മണിക്കൂറുകൾ ഷെഡ്യൂൾ ചെയ്യാൻ പറ്റില്ല. പിന്നീട് ശരി എന്ന് പറഞ്ഞ് ഉറപ്പിക്കുക. പോകുന്നതിന് ഒരു "
+                    "മണിക്കൂർ മുമ്പ് പുതിയ കാലാവസ്ഥയോടെ ഓർമ്മപ്പെടുത്തൽ കിട്ടും. പോകുമ്പോൾ Trip ടാബ് തുറന്ന് ഷെഡ്യൂൾ ചെയ്ത "
+                    "യാത്രയിൽ Start അമർത്തുക, എങ്കിലേ നിരീക്ഷണം തുടങ്ങൂ."),
+    "kb:verdicts": ("തിര, കാറ്റ്, ഇടിമിന്നൽ, മഴ, ഔദ്യോഗിക മുന്നറിയിപ്പുകൾ, സ്ഥിരീകരിച്ച റിപ്പോർട്ടുകൾ എന്നിവ നോക്കി നിങ്ങളുടെ വള്ളത്തിന് "
+                    "ഓരോ മണിക്കൂറും Sea Safe സുരക്ഷിതം, ജാഗ്രത, അപകടം എന്ന് തിരിക്കുന്നു. വിവരം ഇല്ലാത്തതോ പഴയതോ ആയ "
+                    "കാലാവസ്ഥ ഒരിക്കലും സുരക്ഷിതം ആകില്ല. ഇത് ഒരു ഉപദേശം മാത്രമാണ്; INCOIS, IMD, കോസ്റ്റ് ഗാർഡ് എന്നിവയുടെ "
+                    "ഔദ്യോഗിക മുന്നറിയിപ്പുകൾ എപ്പോഴും പാലിക്കുക."),
+    "kb:reports": ("Sea Watch-ൽ പരുക്കൻ കടൽ, കൊടുങ്കാറ്റ്, പൊഴിമുഖത്തെ അപകടം, ശക്തമായ ഒഴുക്ക്, അവശിഷ്ടങ്ങൾ, എണ്ണ ചോർച്ച, "
+                   "അപകടത്തിലായ വള്ളം, മീൻ ഇല്ല എന്നിവ റിപ്പോർട്ട് ചെയ്യാം. റിപ്പോർട്ടുകൾ കുറച്ച് മണിക്കൂറിൽ കാലഹരണപ്പെടും. മറ്റൊരു "
+                   "മത്സ്യത്തൊഴിലാളി സ്ഥിരീകരിച്ചാൽ മാത്രമേ ഒരു റിപ്പോർട്ട് റിസ്ക് കൂട്ടൂ, അതും പരമാവധി ജാഗ്രത വരെ."),
+    "kb:community": ("Community ടാബിൽ നിങ്ങളുടെ ഹാർബറിനടുത്തുള്ള മത്സ്യത്തൊഴിലാളികളുമായി ചാറ്റ് ചെയ്യാം, അടുത്തുള്ള പരിപാടികൾ കാണാം: "
+                     "യോഗങ്ങൾ, സുരക്ഷാ പരിശീലനം, ഉത്സവങ്ങൾ, കടൽത്തീര ശുചീകരണം. പരിപാടി ഉണ്ടാക്കാം, പങ്കെടുക്കുമെന്ന് അറിയിക്കാം, "
+                     "ഓരോ പരിപാടിക്കും പ്രത്യേക ചാറ്റ് ഉണ്ട്. മറ്റുള്ളവർ നിങ്ങളുടെ പേര് മാത്രമേ കാണൂ, ഫോൺ നമ്പർ കാണില്ല. മോശം "
+                     "സന്ദേശങ്ങൾ ഫ്ലാഗ് ചെയ്യുക; മൂന്ന് ഫ്ലാഗ് കിട്ടിയാൽ സന്ദേശം മറയ്ക്കും."),
+    "kb:safety_kit": ("ലൈഫ് ജാക്കറ്റ് ധരിക്കുക. ഫോൺ ചാർജ് ചെയ്ത് വാട്ടർപ്രൂഫ് കവറിൽ വെക്കുക, കുടിവെള്ളം, ടോർച്ച്, വിസിൽ, കത്തി "
+                      "എന്നിവ കരുതുക. എവിടെ പോകുന്നു, എപ്പോൾ തിരിച്ചെത്തും എന്ന് കരയിലെ ആരോടെങ്കിലും പറയുക, Sea Safe-ൽ യാത്ര "
+                      "തുടങ്ങുകയും ചെയ്യുക."),
+}
 
 
 def knowledge_base() -> list[Doc]:
@@ -178,13 +253,32 @@ def knowledge_base() -> list[Doc]:
             "Wear a life jacket. Carry your phone charged in a waterproof pouch, drinking water, a torch, a whistle and "
             "a knife. Tell someone ashore where you are going and when you will be back, and start a trip in Sea Safe."),
     ]
+    # auto SOS: the waiting times come from thresholds.json, the same as in the English text
+    auto_ml = (
+        "നിങ്ങൾ കടലിൽ വെച്ച് സിഗ്നൽ നഷ്ടപ്പെട്ട് ഒരുപാട് വൈകുകയും ഫോൺ നിശ്ശബ്ദമാവുകയും ചെയ്താൽ, Sea Safe നിങ്ങളുടെ "
+        "കോൺടാക്ടുകൾക്ക് അവസാനം അറിഞ്ഞ സ്ഥാനം സഹിതം ഓട്ടോമാറ്റിക് SOS അയയ്ക്കുകയും കോസ്റ്റ് ഗാർഡിനെ 1554-ൽ വിളിക്കാൻ "
+        "ആവശ്യപ്പെടുകയും ചെയ്യും. വൈകിയ ഒരു യാത്ര കാരണം തെറ്റായ അലാറം ഉണ്ടാകാതിരിക്കാൻ ഇത് ഒരുപാട് സമയം കാത്തിരിക്കും: "
+        + ", ".join(f"{tx.BOAT_WORD['ml'].get(b, b)} {sos_mins.get(b, 120)} മിനിറ്റ്" for b in BOAT_TYPES)
+        + f" (വൈകിയതിന് ശേഷം). വള്ളം {esc.get('offshore_km', 2)} കിലോമീറ്ററിൽ കൂടുതൽ അകലെ പോയിട്ടുണ്ടെങ്കിൽ, "
+        f"{esc.get('signal_silent_minutes', 60)} മിനിറ്റായി ഫോൺ സ്ഥാനം അയച്ചിട്ടില്ലെങ്കിൽ മാത്രമേ ഇത് പോകൂ. ഫോൺ ഹാർബറിനടുത്ത് "
+        "നിന്ന് റിപ്പോർട്ട് ചെയ്യുന്നുണ്ടെങ്കിൽ ഓട്ടോമാറ്റിക് SOS പോകില്ല. സിഗ്നൽ പോകുന്നതിന് മുമ്പ് 'More time' അമർത്തിയാൽ "
+        "എല്ലാ ഘട്ടങ്ങളും വൈകും. കരയിലെത്തിയാൽ 'I'm back' അമർത്തുക, നിങ്ങൾ സുരക്ഷിതനാണെന്ന് കോൺടാക്ടുകളെ അറിയിക്കും.")
+    for d in docs:
+        if d.id == "kb:auto_sos":
+            d.text_ml = auto_ml
+        elif d.id in _KB_ML:
+            d.text_ml = _KB_ML[d.id]
     for b in BOAT_TYPES:
         t = THRESHOLDS[b]
+        boat_ml = tx.BOAT_WORD["ml"].get(b, b)
         docs.append(Doc(
             f"kb:limits:{b}", f"Limits for a {boats[b]}",
             f"For a {boats[b]}: waves from {t['wave_caution']} m are CAUTION and from {t['wave_unsafe']} m UNSAFE; "
             f"wind from {t['wind_caution']} km/h is CAUTION and from {t['wind_unsafe']} km/h UNSAFE; gusts from "
             f"{t['gust_unsafe']} km/h are UNSAFE. Thunderstorms are UNSAFE for every boat.",
+            text_ml=(f"{boat_ml} വള്ളത്തിന്: തിര {t['wave_caution']} മീറ്റർ മുതൽ ജാഗ്രതയും {t['wave_unsafe']} മീറ്റർ മുതൽ അപകടവുമാണ്; "
+                     f"കാറ്റ് മണിക്കൂറിൽ {t['wind_caution']} കിലോമീറ്റർ മുതൽ ജാഗ്രതയും {t['wind_unsafe']} കിലോമീറ്റർ മുതൽ അപകടവുമാണ്; "
+                     f"ഇടയ്ക്കുള്ള ശക്തമായ കാറ്റ് {t['gust_unsafe']} കിലോമീറ്റർ മുതൽ അപകടമാണ്. ഇടിമിന്നൽ ഏത് വള്ളത്തിനും അപകടമാണ്."),
         ))
     return docs
 
@@ -198,17 +292,24 @@ def user_docs(session: Session, user: User, now: datetime) -> list[Doc]:
                 f"For your boat the steps after your return time are: 30 minutes grace, then you are asked "
                 f"'Are you back?', then your contacts are alerted, and only {wait} minutes after the grace time ends "
                 f"(so {tx.fmt_duration(30 + wait)} after your return time) an automatic SOS is sent, if you went out to "
-                f"sea and your phone is silent.", pinned=True)]
+                f"sea and your phone is silent.", pinned=True,
+                text_ml=(f"നിങ്ങളുടെ പേര് {user.name}. വള്ളം: {tx.BOAT_WORD['ml'].get(user.boat_type, user.boat_type)}. ഹോം ഹാർബർ: "
+                         f"{user.home_name or 'പേര് നൽകിയിട്ടില്ല'}. നിങ്ങളുടെ വള്ളത്തിന് തിരിച്ചെത്തേണ്ട സമയത്തിന് ശേഷമുള്ള ഘട്ടങ്ങൾ: "
+                         f"30 മിനിറ്റ് ഗ്രേസ്, പിന്നെ 'തിരിച്ചെത്തിയോ?' എന്ന ചോദ്യം, പിന്നെ കോൺടാക്ടുകൾക്ക് അലർട്ട്, ഗ്രേസ് കഴിഞ്ഞ് "
+                         f"{wait} മിനിറ്റ് ആകുമ്പോൾ ({duration('ml', 30 + wait)} തിരിച്ചെത്തേണ്ട സമയത്തിന് ശേഷം) ഓട്ടോമാറ്റിക് SOS, "
+                         f"കടലിൽ പോയിട്ടും ഫോൺ നിശ്ശബ്ദമാണെങ്കിൽ മാത്രം."))]
 
     contacts = session.exec(select(Contact).where(Contact.user_id == user.id)).all()
     if contacts:
         names = "; ".join(f"{c.name}" + (f" ({c.relation})" if c.relation else "") for c in contacts)
         docs.append(Doc("me:contacts", "Your emergency contacts",
-                        f"You have {len(contacts)} emergency contact(s): {names}. They get your SOS and overdue alerts."))
+                        f"You have {len(contacts)} emergency contact(s): {names}. They get your SOS and overdue alerts.",
+                        text_ml=f"നിങ്ങൾക്ക് {len(contacts)} അടിയന്തര കോൺടാക്ട് ഉണ്ട്: {names}. നിങ്ങളുടെ SOS-ഉം വൈകൽ അലർട്ടുകളും അവർക്ക് കിട്ടും."))
     else:
         docs.append(Doc("me:contacts", "Your emergency contacts",
                         "You have no emergency contacts saved. Add one in Profile so SOS and overdue alerts reach someone.",
-                        pinned=True))
+                        pinned=True,
+                        text_ml="അടിയന്തര കോൺടാക്ടുകൾ ഒന്നും സേവ് ചെയ്തിട്ടില്ല. SOS-ഉം വൈകൽ അലർട്ടുകളും ആർക്കെങ്കിലും കിട്ടാൻ Profile-ൽ ഒരാളെ ചേർക്കുക."))
 
     trips = session.exec(select(Trip).where(Trip.user_id == user.id).order_by(Trip.id.desc()).limit(6)).all()  # type: ignore[union-attr]
     for trip in trips:

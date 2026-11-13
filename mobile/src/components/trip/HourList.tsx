@@ -166,8 +166,8 @@ const styles = StyleSheet.create({
   value: { fontSize: 16, fontWeight: '800', color: colors.ink, marginRight: 4 },
   small: { fontSize: 13, fontWeight: '600', color: colors.inkSoft },
   mouth: { flexDirection: 'row', alignItems: 'center', gap: 3, borderWidth: 2, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1, marginLeft: 4 },
-  mouthText: { fontSize: 12, fontWeight: '800', color: colors.ink },
-  why: { fontSize: 13, color: colors.ink, lineHeight: 18 },
+  mouthText: { fontSize: 12, lineHeight: 17, fontWeight: '800', color: colors.ink },
+  why: { fontSize: 13, color: colors.ink, lineHeight: 20 },
   actions: { flexDirection: 'row', gap: 8, padding: 8, paddingTop: 0 },
   action: {
     flex: 1,

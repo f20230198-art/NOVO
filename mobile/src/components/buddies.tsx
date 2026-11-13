@@ -34,6 +34,8 @@ export function BuddyBoats() {
   }, []);
 
   useEffect(() => {
+    // Polling: the first fetch runs at once, the rest on a timer.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
     const id = setInterval(load, 30000);
     return () => clearInterval(id);

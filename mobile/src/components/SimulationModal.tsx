@@ -38,9 +38,11 @@ export function SimulationModal() {
   const [showServer, setShowServer] = useState(false);
   const adoptPersona = useAdoptDemoPersona();
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setUrl(apiUrl), [apiUrl]);
   useEffect(() => {
     if (!simOpen) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNote(null);
     api.health().then((h) => setCurrent(h.scenario)).catch(() => setNote(t('noConnection')));
   }, [simOpen, apiUrl, t]);

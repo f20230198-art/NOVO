@@ -31,7 +31,7 @@ Product spec and feature priorities: [SEA-SAFE-PLAN.md](SEA-SAFE-PLAN.md). Read 
 - Times: store UTC; convert using Open-Meteo's `utc_offset_seconds` for display.
 - Languages: `en`, `ml` (Malayalam) required; `ta`, `hi`, `ar` optional. UI strings in `mobile/src/i18n/`.
 - LLM calls go through `services/llm.py` (rotating Groq/Gemini key pool). Each call is stateless and carries its full context, so any key can serve it.
-- Voice assistant is English-only for now; Malayalam UI strings fall back to English where untranslated (`ml.ts` is `Partial<Strings>`).
+- Voice assistant (Meera) speaks and understands English and Malayalam. The language is the one the app sends, else the profile's; a message in Malayalam script is always answered in Malayalam. Every sentence the server writes itself (action replies, no-key answers) lives in `services/assistant_text.py`; no-key knowledge answers use `Doc.text_ml` in `services/rag.py`; Malayalam distress words are in `assistant._DISTRESS_ML`. The model is told the language and the Malayalam verdict words, and `verdict_words_ok` checks Malayalam replies against the engine too. On the phone, `lib/speech.ts` picks an `ml-IN` female voice if installed and otherwise keeps the reply on screen. Malayalam UI strings fall back to English where untranslated (`ml.ts` is `Partial<Strings>`). Malayalam text needs a native-speaker review before a real release.
 - Out of scope (do not build): market prices, maritime boundary alerts, IVR, gamification. (Community chat and events are now in scope: `services/social.py`.)
 
 ## Added 13 Nov (differentiators)

@@ -11,11 +11,13 @@ import { useApp } from '../../lib/store';
 import { colors } from '../../lib/theme';
 
 function icon(name: IconName) {
-  return ({ focused }: { focused: boolean }) => (
+  const TabIcon = ({ focused }: { focused: boolean }) => (
     <View style={[styles.icon, focused && styles.iconOn]}>
       <Icon name={name} size={24} color={focused ? colors.white : colors.inkSoft} weight={focused ? 2.6 : 2.2} />
     </View>
   );
+  TabIcon.displayName = `TabIcon(${name})`;
+  return TabIcon;
 }
 
 export default function TabsLayout() {

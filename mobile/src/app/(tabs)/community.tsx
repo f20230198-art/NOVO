@@ -50,6 +50,8 @@ function ChatPanel({ channel }: { channel: string }) {
 
   useEffect(() => {
     lastId.current = 0;
+    // Switching channel clears the old thread before the new one loads.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessages([]);
   }, [channel]);
 

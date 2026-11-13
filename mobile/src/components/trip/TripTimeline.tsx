@@ -111,7 +111,7 @@ function Marker({ left, icon, label, strong }: { left: `${number}%`; icon: IconN
     <View style={[styles.marker, { left }, edge]} pointerEvents="none">
       <View style={styles.markerRow}>
         <Icon name={icon} size={15} color={strong ? colors.ink : colors.inkSoft} />
-        <Text style={[styles.markerText, strong && styles.markerStrong]} numberOfLines={1}>
+        <Text style={[styles.markerText, strong && styles.markerStrong]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
           {label}
         </Text>
       </View>

@@ -131,11 +131,25 @@ const MALE_HINTS = [
   'en-au-x-aub', 'en-au-x-aud', 'male', 'rishi', 'daniel', 'alex', 'fred', 'aaron', 'arthur', 'gordon', 'david', 'mark',
 ];
 
-export function scoreVoice(v: Speech.Voice): number {
+// Malayalam: Google's ml-IN voices are "ml-in-x-mlf-*" (female) and "ml-in-x-mlm-*" (male); other
+// engines name theirs, so those hints are looked for too.
+const ML_FEMALE_HINTS = ['ml-in-x-mlf', 'female', 'woman', 'lekha', 'veena'];
+const ML_MALE_HINTS = ['ml-in-x-mlm', 'male'];
+
+/** Score a voice for the assistant in `lang`: -1 when it cannot speak the language. */
+export function scoreVoice(v: Speech.Voice, lang: Lang = 'en'): number {
   const id = `${v.identifier} ${v.name}`.toLowerCase();
   const language = (v.language ?? '').toLowerCase().replace('_', '-');
-  if (!language.startsWith('en')) return -1;
+  if (!language.startsWith(lang)) return -1;
   let score = 0;
+  if (lang === 'ml') {
+    score += language === 'ml-in' ? 40 : 20;
+    if (ML_MALE_HINTS.some((h) => id.includes(h)) && !id.includes('female')) score -= 50;
+    else if (ML_FEMALE_HINTS.some((h) => id.includes(h))) score += 30;
+    if (id.includes('network') || v.quality === Speech.VoiceQuality.Enhanced) score += 15;
+    if (id.includes('notinstalled') || id.includes('not-installed')) score -= 100;
+    return score;
+  }
   if (language === 'en-in') score += 40;
   else if (language === 'en-gb' || language === 'en-us' || language === 'en-au') score += 20;
   else score += 10;
@@ -146,20 +160,29 @@ export function scoreVoice(v: Speech.Voice): number {
   return score;
 }
 
-let chosenVoice: string | null | undefined;
+const chosenVoice: Partial<Record<Lang, string | null>> = {};
 
-/** The best English, preferably Indian-English, female voice on this phone. Cached. */
-export async function assistantVoice(): Promise<string | null> {
-  if (chosenVoice !== undefined) return chosenVoice;
+/** The best female voice for `lang` on this phone (Indian English, or ml-IN). Cached per language. */
+export async function assistantVoice(lang: Lang = 'en'): Promise<string | null> {
+  if (chosenVoice[lang] !== undefined) return chosenVoice[lang] ?? null;
   try {
     const voices = await Speech.getAvailableVoicesAsync();
     if (!voices.length) return null; // the TTS engine may not be ready yet; try again next time
-    const best = voices.map((v) => ({ v, s: scoreVoice(v) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s)[0];
-    chosenVoice = best ? best.v.identifier : null;
+    const best = voices.map((v) => ({ v, s: scoreVoice(v, lang) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s)[0];
+    chosenVoice[lang] = best ? best.v.identifier : null;
   } catch {
-    chosenVoice = null;
+    chosenVoice[lang] = null;
   }
-  return chosenVoice;
+  return chosenVoice[lang] ?? null;
+}
+
+/**
+ * Can this phone read `lang` aloud? Only a phone that lists its voices and has none for the
+ * language says no; the caller then keeps the reply on screen instead of mispronouncing it.
+ */
+export async function voiceInstalled(lang: Lang): Promise<boolean> {
+  if (lang === 'en') return true;
+  return canSpeak(lang);
 }
 
 /** "It's calm. Waves about 1.2 metres, wind 20." -> one chunk per sentence, so it breathes. */
@@ -167,7 +190,7 @@ export function sentences(text: string): string[] {
   const clean = text.replace(/\s+/g, ' ').trim();
   if (!clean) return [];
   // Split after . ! ? but not inside numbers like 1.2 or times like 10.30.
-  const parts = clean.split(/(?<=[.!?])\s+(?=[A-Z0-9"'(])/);
+  const parts = clean.split(/(?<=[.!?])\s+(?=[A-Z0-9\u0D00-\u0D7F"'(])/);
   // Very long sentences also get a breath at a comma.
   return parts.flatMap((p) => (p.length > 160 ? p.split(/(?<=,)\s+/) : [p])).filter(Boolean);
 }
@@ -177,7 +200,7 @@ const PITCH = 1.08; // a touch brighter than the engine default
 const RATE = 0.92; // a little slower: outdoors, over wind and engine noise
 let generation = 0;
 
-export type SpeakHandlers = { onStart?: () => void; onDone?: () => void };
+export type SpeakHandlers = { onStart?: () => void; onDone?: () => void; onUnavailable?: () => void };
 
 /** Speak a reply sentence by sentence in the assistant's voice. Stops anything already speaking. */
 export function speak(text: string, lang: Lang, handlers: SpeakHandlers = {}): void {
@@ -190,7 +213,13 @@ export function speak(text: string, lang: Lang, handlers: SpeakHandlers = {}): v
   const chunks = sentences(text);
   if (!chunks.length) return;
   void (async () => {
-    const voice = lang === 'en' ? await assistantVoice() : null;
+    // No installed voice for the language (Malayalam is often missing): do not let the engine read
+    // it in another language's voice. The text stays on screen.
+    if (!(await voiceInstalled(lang))) {
+      if (mine === generation) handlers.onUnavailable?.();
+      return;
+    }
+    const voice = await assistantVoice(lang);
     if (mine !== generation) return;
     handlers.onStart?.();
     const say = (i: number) => {

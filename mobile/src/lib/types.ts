@@ -223,6 +223,7 @@ export type AssistantReply = {
   scheduled: ScheduledTrip[];
   source: 'ai' | 'rules' | 'guard';
   persona?: string;
+  language?: Lang;
   today: { verdict: Level; short_answer: string };
 };
 

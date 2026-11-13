@@ -25,6 +25,7 @@ limiter = Limiter(
 
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
+    language: Optional[str] = Field(default=None, max_length=5)  # the app's language; else the profile's
 
 
 @router.post("/chat")
@@ -43,7 +44,7 @@ async def chat(body: ChatIn, user: User = Depends(current_user), session: Sessio
             },
         )
     try:
-        return await assistant.chat(session, user, body.message)
+        return await assistant.chat(session, user, body.message, language=body.language)
     except ForecastUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Forecast unavailable: {exc}")
 
@@ -51,6 +52,7 @@ async def chat(body: ChatIn, user: User = Depends(current_user), session: Sessio
 @router.get("/day-plan")
 async def day_plan(day_index: int = Query(default=0, ge=0, le=assistant.FORECAST_DAYS - 1),
                    period: Optional[str] = Query(default=None),
+                   language: Optional[str] = Query(default=None, max_length=5),
                    user: User = Depends(current_user), session: Session = Depends(get_session)):
     """The same hour-by-hour advice Meera speaks, for the trip screen: the engine's best window,
     hours to avoid, harbour mouth and the run home. No LLM; facts only. Shape: assistant_tools.day_plan."""
@@ -58,8 +60,9 @@ async def day_plan(day_index: int = Query(default=0, ge=0, le=assistant.FORECAST
         ctx = await advisor_service.compute(session, user.home_lat, user.home_lon, user.boat_type, days=assistant.FORECAST_DAYS)
     except ForecastUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"Forecast unavailable: {exc}")
-    plan = assistant_tools.day_plan(ctx, day_index, period if period in assistant_tools.PERIODS else None)
-    return {**plan, "spoken": assistant_tools.plan_spoken(plan)}
+    lang = assistant.lang_of(language or user.language)
+    plan = assistant_tools.day_plan(ctx, day_index, period if period in assistant_tools.PERIODS else None, lang)
+    return {**plan, "spoken": assistant_tools.plan_spoken(plan, lang)}
 
 
 @router.get("/history")

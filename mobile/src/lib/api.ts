@@ -148,8 +148,8 @@ export const api = {
   voteReport: (id: number, dir: 'up' | 'down') =>
     request<Report>(`/reports/${id}/vote`, { method: 'POST', body: { dir } }),
 
-  assistantChat: (message: string) =>
-    request<AssistantReply>('/assistant/chat', { method: 'POST', body: { message }, timeoutMs: 30000 }),
+  assistantChat: (message: string, language?: string) =>
+    request<AssistantReply>('/assistant/chat', { method: 'POST', body: { message, language }, timeoutMs: 30000 }),
   assistantHistory: () => request<AssistantTurn[]>('/assistant/history'),
   clearAssistantHistory: () => request<{ ok: boolean }>('/assistant/history', { method: 'DELETE' }),
 
