@@ -1,4 +1,4 @@
-# 🌊 Sea Safe
+# Sea Safe
 
 **An AI sea-safety assistant for small-boat fishers.** Ask “Is it safe to go to sea today?” out loud, in Malayalam or English, and get a clear **SAFE / CAUTION / UNSAFE** answer for *your* boat and *your* harbour. Then Sea Safe watches the trip and raises the alarm if you don’t come home.
 
@@ -33,7 +33,7 @@ Small-scale fishers decide every morning whether to go out, often with no reliab
 1. **Rules decide, AI explains.** A tested rule engine sets the verdict (`backend/app/services/risk_engine.py`). The AI only puts it into words and can never change it.
 2. **Unknown is never SAFE.** Missing or stale forecasts give CAUTION at best.
 3. **Warnings only raise the risk.** Official warnings and confirmed reports can only make a verdict stricter, never more relaxed.
-4. **Everything works with no API keys.** If keys are missing, answers come from templates and alerts are shown as `simulated`. The demo never breaks.
+4. **Everything works with no API keys.** If keys are missing, answers come from templates and alerts are shown as `simulated`. The demo does not depend on any key.
 
 ## How it works
 
@@ -81,9 +81,9 @@ copy .env.example .env      # then set EXPO_PUBLIC_API_URL to the address from s
 npx expo start --go
 ```
 
-Scan the QR code with **Expo Go**. Done.
+Scan the QR code with **Expo Go**.
 
-> **Voice input** doesn’t work in Expo Go: type your questions there, or build the APK (below) for the full voice experience.
+> **Voice input** doesn’t work in Expo Go: type your questions there, or build the APK (below) to use voice input.
 
 ### Optional: AI keys
 
@@ -121,12 +121,12 @@ Copy `backend/.env.example` to `backend/.env` and add one or more `GROQ_API_KEY`
 
 ## Project status
 
-- ✅ Backend: 214 tests passing.
-- ✅ App: type check and lint are clean.
-- ✅ Voice assistant: English and Malayalam.
-- ⚠️ Not yet tested end to end on a real phone.
-- ⚠️ The Malayalam text needs a native speaker to check it.
-- ⚠️ Twilio SMS, Telegram and push notifications have not been tried with real keys; they run as `simulated`.
+- Done: Backend: 214 tests passing.
+- Done: App: type check and lint are clean.
+- Done: Voice assistant: English and Malayalam.
+- Open: Not yet tested end to end on a real phone.
+- Open: The Malayalam text needs a native speaker to check it.
+- Open: Twilio SMS, Telegram and push notifications have not been tried with real keys; they run as `simulated`.
 
 ## More docs
 
