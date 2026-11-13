@@ -1,63 +1,135 @@
-# Sea Safe
+# 🌊 Sea Safe
 
-A voice assistant that tells a small-boat fisher whether it is safe to go to sea for their boat, then watches the trip until they are home. NOVA 2026 hackathon project.
+**An AI sea-safety assistant for small-boat fishers.** Ask “Is it safe to go to sea today?” out loud, in Malayalam or English, and get a clear **SAFE / CAUTION / UNSAFE** answer for *your* boat and *your* harbour. Then Sea Safe watches the trip and raises the alarm if you don’t come home.
 
-- `backend/` FastAPI service: forecast, risk engine, advisor, voice assistant (RAG + rotating LLM keys), trip scheduling, trip monitor with automatic SOS, community chat and events, alerts. See [backend/README.md](backend/README.md).
-- `mobile/` Expo (Android) app. See [mobile/README.md](mobile/README.md).
-- `dashboard/` co-op dashboard, one static page served by the backend at `/dashboard`.
-- Product spec: [SEA-SAFE-PLAN.md](SEA-SAFE-PLAN.md).
+Built for **NOVA 2026** (24-hour hackathon). The pilot area is Vizhinjam, Kerala.
 
-Rules decide, the AI explains: the SAFE / CAUTION / UNSAFE verdict comes only from `backend/app/services/risk_engine.py`. Everything runs with no API keys.
+---
 
-## Quick start
+## Why it exists
 
-```powershell
-# 1. Backend on the laptop (leave running). Sets up Python on first run, opens the firewall
-#    port (run once as Administrator for that), prints the address the phones need, and
-#    with -Seed loads the demo fishers, reports, event and chat.
-powershell -ExecutionPolicy Bypass -File .\start-demo.ps1 -Seed
+Small-scale fishers decide every morning whether to go out, often with no reliable information:
 
-# 2. Dashboard on the projector: http://localhost:8001/dashboard  (admin key: change-me)
+- **Warnings don’t reach them.** Official bulletins are long, in English, and don’t give a clear yes or no for one harbour on one morning.
+- **Nobody notices when they’re late.** When a boat doesn’t return, family on the shore raise the alarm hours later, with no last position.
+- **What fishers see stays local.** Rough harbour mouths and hazards are seen by other fishers first, but there is no trusted way to share them.
 
-# 3. App
-cd mobile
-npm install
-cp .env.example .env      # EXPO_PUBLIC_API_URL=http://<laptop-ip>:8001
-npx expo start --go       # Expo Go; voice input needs the APK or a dev build
+## What it does
+
+| Feature | What the fisher gets |
+|---|---|
+| **Go / no-go verdict** | SAFE, CAUTION or UNSAFE for their boat type, from live wave, wind and storm forecasts |
+| **Voice assistant “Meera”** | Ask by voice in Malayalam or English. Hour-by-hour advice (“go 5–11, avoid after 2”) and she can book the trip for you |
+| **Trip watch + automatic SOS** | If you’re overdue, Sea Safe asks “Are you back?”, then alerts family, buddy boats and the Coast Guard number |
+| **SOS without internet** | Hold the button: an SMS with your position goes straight from the phone, even if our server is down |
+| **Drift search zone** | Uses current and wind to show where a missing boat probably is now, and in +1, +3 and +6 hours |
+| **Harbour-mouth check** | Estimates breaking waves at the harbour mouth, the most dangerous part of a small-boat trip |
+| **Sea map** | Waves, wind and depth on a map, with a legend in metres |
+| **Community** | Hazard reports, harbour chat and events. A report only counts once another fisher confirms it |
+| **Family app + Ask by SMS** | Family members get alerts on their own phone; phones without data can ask by SMS |
+
+### Safety rules we never break
+
+1. **Rules decide, AI explains.** A tested rule engine sets the verdict (`backend/app/services/risk_engine.py`). The AI only puts it into words and can never change it.
+2. **Unknown is never SAFE.** Missing or stale forecasts give CAUTION at best.
+3. **Warnings only raise the risk.** Official warnings and confirmed reports can only make a verdict stricter, never more relaxed.
+4. **Everything works with no API keys.** If keys are missing, answers come from templates and alerts are shown as `simulated`. The demo never breaks.
+
+## How it works
+
+```
+Open-Meteo forecasts ─┐
+Official warnings ────┼─▶  Risk engine (pure rules)  ─▶  AI explains (optional)  ─▶  App · SMS · Family · Dashboard
+Fisher reports ───────┘        SAFE / CAUTION / UNSAFE
 ```
 
-Tests: `cd backend && .venv/Scripts/pytest -q` and `cd mobile && npx tsc --noEmit`.
+| Part | Tech |
+|---|---|
+| `backend/` | Python 3.13, FastAPI, SQLModel (SQLite, or Postgres), Groq/Gemini key pool, 214 tests |
+| `mobile/` | React Native + Expo (TypeScript). Speech recognition and text-to-speech run on the phone |
+| `dashboard/` | One web page for the fishers’ co-op, served by the backend at `/dashboard` |
+| Weather | Open-Meteo Marine + Forecast, which are free and need no key |
 
-APK: `cd mobile && npm i -g eas-cli && eas login && eas build -p android --profile preview`.
+---
 
-## Demo script
+## Setup (about 5 minutes)
 
-Before you start: `start-demo.ps1 -Seed` running on the laptop, dashboard open on the projector (admin key `change-me`), and two phones with the APK on the same Wi-Fi as the laptop.
+**You need:** Windows with [Python 3.13](https://www.python.org/downloads/) and [Node.js 18+](https://nodejs.org/), plus an Android phone with **Expo Go** installed, on the **same Wi-Fi** as the laptop.
 
-- **Fisher phone:** first screen → **I go fishing** → onboard as below. If the APK was built with another address, set the one `start-demo.ps1` printed under **Server settings**.
-- **Family phone:** first screen → **A family member goes fishing** → **Server settings** (same address) → enter the 6-digit code shown on the fisher phone under **Profile → Family alerts**. From now on every overdue alert, SOS, automatic SOS and "back safely" arrives on this phone as a notification and in its message thread, with **Open location** and **Call Coast Guard 1554** buttons on an SOS.
-- **Simulation pop-up:** on the fisher phone, long-press the **🌊 Sea Safe** title on Home (or the Profile title). It opens a pop-up window: weather (live, calm, rough, worsening, thunderstorm, heavy rain, gale wind, high swell, storm, cyclone), official warnings (cyclone, rough sea, high wind, lightning), confirmed hazard reports near the harbour, trip events (fast-forward to overdue, lost at sea with no signal, run the monitor, seed data), **Reset everything**, and server settings.
+### 1. Start the backend
 
-1. **Onboard** as a Muthalapozhi fisher: choose മലയാളം, enter a name, pick the boat with no engine, tap the **Muthalapozhi** quick-pick, add one contact.
-2. **Ask.** Hold the mic and say "നാളെ രാവിലെ കടലിൽ പോകാമോ?" (in Expo Go, type it). The app speaks the answer and shows the 3-day strip. Tap **എന്തുകൊണ്ട്?** for the numbers.
-3. **Switch the boat.** Profile → pick the mechanised boat → back to Home: the verdict changes. If the real sea is too calm to show a difference, pick **Rough sea** in the simulation pop-up first (UNSAFE with no engine, CAUTION with an outboard, SAFE for mechanised). **Gale wind** and **High swell** also spare only the mechanised boat; **Thunderstorm** is UNSAFE for every boat even though the waves are moderate.
-4. **Storm.** Simulation pop-up → **Thunderstorm** or **Cyclone** (the cyclone also posts an official Cyclone alert). The home card goes red; ask again and the answer gives the reason.
-5. **Overdue.** Simulation pop-up → **Calm**, ask again, tap **Start this trip**, then pop-up → **Fast-forward my trip**. Within 60 seconds (or at once with **Run monitor now**) the phone asks "Are you back?". The family is told 0–30 minutes later (`services/escalation.py`: at once in an UNSAFE sea, longest when the phone is back at the harbour), and the alert appears in the dashboard feed while the boat pulses red. Tap **I'm back** and the family gets a "back safely" message.
-   The family phone buzzes with the "has not returned" message.
-5b. **Lost at sea.** Start a trip, then simulation pop-up → **Simulate: lost at sea, no signal**. The family phone gets the AUTOMATIC SOS with a long alarm buzz, a red SOS card, **Open location** and **Call Coast Guard 1554**. The trip jumps past its automatic-SOS time (90/120/180 min after overdue, by boat), 7.5 km out, phone silent: the family gets an AUTOMATIC SOS with the last known position and the Coast Guard number, and the dashboard highlights it. The Trip tab shows this whole timeline in advance.
-5c. **Voice assistant.** Assistant tab → hold the mic: "Schedule a trip tomorrow, leave at 6 AM, back by 11 AM" → "Yes". In `storm` it refuses UNSAFE hours. Say "my engine died, we are drifting" and it answers with the SOS steps at once.
-5d. **Community.** Community tab: harbour chat with nearby fishers, and events (the seed adds a Monsoon safety meeting) with RSVP and a chat per event.
-6. **Community report.** On a second phone (same harbour), Sea Watch → **Report** → harbour mouth rough. Within 15 seconds it is on the first phone's map, and the answer is unchanged: one fisher alone cannot move the verdict. On the first phone tap 👍 on the report, then ask about today ("ഇപ്പോൾ കടലിൽ പോകാമോ?"): the answer now mentions the report and the hours it covers drop to CAUTION. A report lasts 6 hours, so it does not change tomorrow's answer.
-7. **SOS.** Hold the red SOS button for 2 seconds. The SMS composer opens addressed to the contacts, with a map link and a note saying whether the position is a live GPS fix. A **Call Coast Guard 1554** button appears above the SOS button, and the family phone receives the SOS with the position. This works with the backend switched off; it does need a phone signal.
+From the project folder, in PowerShell:
 
-Extra moments: scenario `worsening` during a trip produces a "Head back now" alert, and posting an official warning from the dashboard (admin key `change-me` unless you set `ADMIN_KEY`) turns every boat in the area UNSAFE.
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-demo.ps1 -Seed
+```
 
-## Status
+This sets up Python on the first run, loads demo data (`-Seed`) and **prints the address your phone needs**, for example `http://192.168.1.20:8001`. Leave it running.
 
-Built and tested: backend (105 tests passing), the dashboard (checked in a browser), and the voice assistant against a real Groq key and live Open-Meteo data.
+> If the phone can’t connect, run it once as **Administrator** so it can open the firewall port.
 
-Built, typechecked and bundled for Android, but **not yet run on a phone**: the mobile app. No APK has been built.
+### 2. Open the dashboard (optional)
 
-Not tested with real credentials: Claude explanations, Twilio SMS, Telegram, Expo push. Without keys the app uses template explanations, the assistant uses its rule-based path and knowledge base, and alerts are logged as `simulated`.
+Go to **http://localhost:8001/dashboard**. The admin key is `change-me`.
 
-The voice assistant is English only for now. The Malayalam text is a first draft and needs a native-speaker review; new screens fall back to English.
+### 3. Start the app
+
+```powershell
+cd mobile
+npm install
+copy .env.example .env      # then set EXPO_PUBLIC_API_URL to the address from step 1
+npx expo start --go
+```
+
+Scan the QR code with **Expo Go**. Done.
+
+> **Voice input** doesn’t work in Expo Go: type your questions there, or build the APK (below) for the full voice experience.
+
+### Optional: AI keys
+
+Copy `backend/.env.example` to `backend/.env` and add one or more `GROQ_API_KEY` or `GEMINI_API_KEY` values for natural AI answers. **Everything works without them.**
+
+### Useful commands
+
+| What | Command |
+|---|---|
+| Backend tests | `cd backend && .venv\Scripts\pytest -q` |
+| App type check | `cd mobile && npx tsc --noEmit` |
+| Run backend by hand | `cd backend && .venv\Scripts\uvicorn app.main:app --reload --host 0.0.0.0 --port 8001` |
+| Build an Android APK | `cd mobile && npm i -g eas-cli && eas login && eas build -p android --profile preview` |
+
+---
+
+## 5-minute demo
+
+**Before you start:** the backend is running with `-Seed`, the dashboard is on the projector, and the phones are on the same Wi-Fi.
+
+**Simulation menu:** on the fisher phone, **long-press the “Sea Safe” title** on Home. From there you can change the weather (calm, rough, thunderstorm, cyclone…), post official warnings, fast-forward a trip or reset everything.
+
+1. **Sign up.** Pick മലയാളം, enter a name, choose the boat with no engine, tap the **Muthalapozhi** harbour, and add one contact.
+2. **Ask.** Hold the mic: “നാളെ രാവിലെ കടലിൽ പോകാമോ?” (“Can I go to sea tomorrow morning?”). Meera answers out loud. Tap **എന്തുകൊണ്ട്?** (“Why?”) to see the numbers.
+3. **Change the boat.** Pick the mechanised boat in Profile. In a **Rough sea** the verdict goes from UNSAFE to SAFE, because bigger boats can handle more.
+4. **Storm.** Simulation → **Cyclone**. The home card turns red and Meera explains why.
+5. **Overdue.** Choose **Calm**, start a trip, then Simulation → **Fast-forward my trip**. The phone asks “Are you back?” and the family phone gets an alert.
+6. **Lost at sea.** Simulation → **Lost at sea, no signal**. An automatic SOS with the last known position goes out, and the dashboard shows the **drift search zone**.
+7. **Community.** On a second phone, report a rough harbour mouth. It only affects the verdict after another fisher confirms it.
+8. **SOS.** Hold the red button for 2 seconds. An SMS with your position opens, ready to send, even with the backend switched off.
+
+**Family phone:** on the first screen choose **“A family member goes fishing”**, then enter the 6-digit code from the fisher’s **Profile → Family alerts**.
+
+---
+
+## Project status
+
+- ✅ Backend: 214 tests passing.
+- ✅ App: type check and lint are clean.
+- ✅ Voice assistant: English and Malayalam.
+- ⚠️ Not yet tested end to end on a real phone.
+- ⚠️ The Malayalam text needs a native speaker to check it.
+- ⚠️ Twilio SMS, Telegram and push notifications have not been tried with real keys; they run as `simulated`.
+
+## More docs
+
+- [SEA-SAFE-PLAN.md](SEA-SAFE-PLAN.md): product spec and priorities
+- [CLAUDE.md](CLAUDE.md): design rules and conventions for contributors
+- [backend/README.md](backend/README.md) · [mobile/README.md](mobile/README.md)
