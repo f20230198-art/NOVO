@@ -16,7 +16,8 @@ from ..config import settings
 from ..db import get_session, utcnow
 from ..models import (Alert, AssistantMessage, Buddy, ChatMessage, CommunityEvent, Contact, FamilyDevice, Report, ScheduledTrip,
                       Trip, User, Warning)
-from ..services import community, escalation, forecast, monitor, social
+from ..deps import current_user, require_admin
+from ..services import community, demo_persona, escalation, forecast, monitor, social
 from ..services.family import new_link_code
 
 def _demo_only() -> None:
@@ -39,7 +40,7 @@ SPOTS = [
 
 class ScenarioIn(BaseModel):
     mode: Literal["real", "calm", "rough", "storm", "worsening", "thunderstorm", "heavy_rain", "strong_wind",
-                  "high_swell", "cyclone"]
+                  "high_swell", "cyclone", "kerala_week"]
     # Where to put the official warning that comes with a cyclone (the fisher's harbour).
     lat: Optional[float] = Field(default=None, ge=-90, le=90)
     lon: Optional[float] = Field(default=None, ge=-180, le=180)
@@ -165,6 +166,53 @@ def lose_signal(trip_id: int, session: Session = Depends(get_session)):
     session.add(trip)
     session.commit()
     return {"ok": True, "trip_id": trip.id, "planned_return": str(trip.planned_return)}
+
+
+class PersonaIn(BaseModel):
+    language: Literal["en", "ml"] = "en"  # Shibu's app language
+
+
+@router.post("/persona", dependencies=[Depends(require_admin)])
+def load_persona(body: Optional[PersonaIn] = None, session: Session = Depends(get_session)):
+    """Load (or reset) the Vizhinjam demo persona world and switch on the `kerala_week` weather.
+
+    Idempotent: earlier persona rows are removed first; the persona's token is kept.
+    Body (optional): {"language": "ml"} for a Malayalam-speaking Shibu.
+    """
+    return demo_persona.load(session, language=(body or PersonaIn()).language)
+
+
+@router.delete("/persona", dependencies=[Depends(require_admin)])
+def clear_persona(session: Session = Depends(get_session)):
+    """Remove the persona world (users included) and switch the weather back to real."""
+    return demo_persona.clear(session)
+
+
+@router.get("/persona")
+def persona_status(session: Session = Depends(get_session)):
+    """Is the persona loaded? Public summary only (no token, phone or position)."""
+    user = demo_persona.persona_user(session)
+    return {"loaded": user is not None, "name": user.name if user else None,
+            "home_name": user.home_name if user else None, "scenario": forecast.get_scenario()}
+
+
+@router.post("/persona/adopt")
+def adopt_persona(session: Session = Depends(get_session)):
+    """Hand the phone the persona's profile and token, so the demo runs as Shibu.
+
+    Like /demo/seed this needs no key while DEMO_MODE is on (the hidden demo panel calls it);
+    it is switched off with the rest of /demo when DEMO_MODE=false.
+    """
+    user = demo_persona.persona_user(session)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Demo persona not loaded: POST /demo/persona with the admin key first")
+    return demo_persona.persona_out(session, user)
+
+
+@router.get("/persona/trips")
+def persona_trips(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """The calling fisher's own trips with their recorded demo GPS tracks (positions are private)."""
+    return demo_persona.trips_with_tracks(session, user)
 
 
 @router.post("/tick")

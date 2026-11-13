@@ -207,7 +207,14 @@ export type ScheduledTrip = {
   day_label: string;
 };
 
-export type AssistantAction = 'none' | 'schedule_trip' | 'confirm_schedule' | 'cancel_schedule' | 'sos_help';
+export type AssistantAction =
+  | 'none'
+  | 'schedule_trip'
+  | 'confirm_schedule'
+  | 'cancel_schedule'
+  | 'extend_trip'
+  | 'end_trip'
+  | 'sos_help';
 
 export type AssistantReply = {
   reply: string;
@@ -215,6 +222,7 @@ export type AssistantReply = {
   proposal: ScheduledTrip | null;
   scheduled: ScheduledTrip[];
   source: 'ai' | 'rules' | 'guard';
+  persona?: string;
   today: { verdict: Level; short_answer: string };
 };
 

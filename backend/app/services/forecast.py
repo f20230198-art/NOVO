@@ -11,7 +11,9 @@ from typing import Optional
 
 import httpx
 
-log = logging.getLogger("seasafe.forecast")
+from . import demo_weather
+
+log =logging.getLogger("seasafe.forecast")
 
 MARINE_URL = (
     "https://marine-api.open-meteo.com/v1/marine?latitude={lat}&longitude={lon}"
@@ -25,7 +27,9 @@ WEATHER_URL = (
 # Water depth (GEBCO 2020 grid, about 450 m cells). Optional: the forecast works without it.
 DEPTH_URL = "https://api.opentopodata.org/v1/gebco2020?locations={lat},{lon}"
 CACHE_TTL_S = 30 * 60
-SCENARIOS = ("real", "calm", "rough", "storm", "worsening", "thunderstorm", "heavy_rain", "strong_wind", "high_swell", "cyclone")
+SCENARIOS = ("real", "calm", "rough", "storm", "worsening", "thunderstorm", "heavy_rain", "strong_wind", "high_swell", "cyclone",
+             # A whole emulated week that varies by place and hour (services/demo_weather.py).
+             "kerala_week")
 
 # Sea and weather values for each simulated condition (applied to every hour).
 SCENARIO_ROWS = {
@@ -73,6 +77,11 @@ def set_scenario(mode: str) -> None:
 
 def get_scenario() -> str:
     return _scenario
+
+
+def get_scenario_set_at() -> datetime:
+    """When the current scenario was switched on (UTC, on the hour). Time-varying scenarios count from here."""
+    return _scenario_set_at.replace(minute=0, second=0, microsecond=0)
 
 
 def clear_cache() -> None:
@@ -239,11 +248,19 @@ def _synthetic(lat: float, lon: float) -> dict:
     }
 
 
-def apply_scenario(rows: list[dict], mode: str, now: datetime) -> list[dict]:
-    """Replace forecast values for the demo. `real` returns the rows unchanged."""
+def apply_scenario(rows: list[dict], mode: str, now: datetime,
+                   lat: Optional[float] = None, lon: Optional[float] = None) -> list[dict]:
+    """Replace forecast values for the demo. `real` returns the rows unchanged.
+
+    `lat`/`lon` (the sea point) only matter for scenarios that vary by place.
+    """
     if mode == "real":
         return rows
     out = copy.deepcopy(rows)
+    if mode == demo_weather.MODE:
+        # Floored in UTC, the same as get_scenario_set_at(), so the map grid and this point agree.
+        anchor = now.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        return demo_weather.apply_to_rows(out, 8.377 if lat is None else lat, 76.96 if lon is None else lon, anchor)
     for row in out:
         if mode in SCENARIO_ROWS:
             row.update(SCENARIO_ROWS[mode])
@@ -303,5 +320,5 @@ async def get_forecast(lat: float, lon: float) -> dict:
     # `stale_forecast_minutes` in thresholds.json.
     out["age_minutes"] = max(0, int((datetime.now(timezone.utc) - data["fetched_at"]).total_seconds() // 60))
     out["scenario"] = _scenario
-    out["rows"] = apply_scenario(data["rows"], _scenario, _scenario_set_at.astimezone(tz))
+    out["rows"] = apply_scenario(data["rows"], _scenario, _scenario_set_at.astimezone(tz), data["sea_lat"], data["sea_lon"])
     return out

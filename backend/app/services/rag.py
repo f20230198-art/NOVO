@@ -296,6 +296,15 @@ def retrieve(session: Session, user: User, query: str, k: int = 6, now: Optional
     return pinned + hits
 
 
+def research(session: Session, user: User, query: str, k: int = 6, now: Optional[datetime] = None) -> list[Doc]:
+    """The assistant's `search` tool: the best matches across Sea Safe's knowledge, this fisher's
+    own records and public local data (warnings, reports, events, harbour chat). No pinned docs:
+    the model already has those. Other people's text keeps trusted=False so it stays fenced."""
+    now = now or utcnow()
+    corpus = knowledge_base() + user_docs(session, user, now) + public_docs(session, user, now)
+    return BM25(corpus).search(query, k)
+
+
 MIN_ANSWER_SCORE = 2.5
 
 

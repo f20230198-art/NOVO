@@ -36,6 +36,8 @@ export default function TabsLayout() {
       <Tabs
         screenOptions={{
           headerShown: false,
+          // Otherwise Android lifts the tab bar above the keyboard and it hides the field being typed in.
+          tabBarHideOnKeyboard: true,
           tabBarActiveTintColor: colors.ink,
           tabBarInactiveTintColor: colors.inkSoft,
           tabBarStyle: {

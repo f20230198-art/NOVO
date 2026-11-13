@@ -222,7 +222,10 @@ function FisherOnboarding() {
             <ContactsEditor
               contacts={contacts}
               t={t}
-              onAdd={(c) => setContacts((list) => [...list, c])}
+              onAdd={(c) => {
+                setContacts((list) => [...list, c]);
+                setError(null); // "add at least one contact" no longer applies
+              }}
               onRemove={(i) => setContacts((list) => list.filter((_, index) => index !== i))}
             />
           ) : null}

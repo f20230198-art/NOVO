@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, Vibration, View , type ScrollViewInstance } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Icon } from '../../components/art';
 import { LevelPill } from '../../components/forecast';
 import { Banner, BigButton } from '../../components/ui';
 import { ApiError, api } from '../../lib/api';
@@ -15,6 +16,18 @@ import type { AssistantTurn, ScheduledTrip } from '../../lib/types';
 // English only for now; Malayalam voice comes later.
 const VOICE_LANG = 'en' as const;
 const HOUR = 60 * 60 * 1000;
+const PERSONA = 'Meera';
+// The voice assistant is English-only, so these stay out of i18n for now.
+const GREETING = `Hi, I'm ${PERSONA}. Ask me how the sea looks, hour by hour, or tell me about your trip.`;
+const SUGGESTIONS = [
+  'When should I go tomorrow?',
+  'Is 4 AM ok tomorrow?',
+  'How are the waves tomorrow morning?',
+  'Plan a trip tomorrow, 5 AM to 11 AM',
+  'What trips do I have?',
+  'I need another hour',
+  'What are fishers saying at the harbour?',
+];
 
 /** Phone-side reminder an hour before a confirmed trip, so it rings even with no signal. */
 function remindLocally(s: ScheduledTrip, t: ReturnType<typeof useApp>['t']): void {
@@ -24,6 +37,7 @@ function remindLocally(s: ScheduledTrip, t: ReturnType<typeof useApp>['t']): voi
 
 export default function AssistantScreen() {
   const { profile, t, ensureRegistered } = useApp();
+  const token = profile?.token;
   const router = useRouter();
 
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
@@ -35,12 +49,21 @@ export default function AssistantScreen() {
   const [error, setError] = useState<string | null>(null);
   const [sosHint, setSosHint] = useState(false);
   const [voiceOut, setVoiceOut] = useState(true);
+  const [speaking, setSpeaking] = useState(false);
+
+  const talk = useCallback((line: string) => {
+    speak(line, VOICE_LANG, { onStart: () => setSpeaking(true), onDone: () => setSpeaking(false) });
+  }, []);
+  const hush = useCallback(() => {
+    stopSpeaking();
+    setSpeaking(false);
+  }, []);
 
   const scrollRef = useRef<ScrollViewInstance>(null);
   const stopRef = useRef<(() => void) | null>(null);
   const heardRef = useRef('');
   const releasedRef = useRef(false);
-  const canUseVoice = useRef(voiceInputAvailable()).current;
+  const [canUseVoice] = useState(voiceInputAvailable);
 
   const load = useCallback(async () => {
     if (!profile?.token) return;
@@ -57,8 +80,8 @@ export default function AssistantScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
-      return () => stopSpeaking();
-    }, [load]),
+      return () => hush();
+    }, [load, hush]),
   );
 
   useEffect(() => {
@@ -70,12 +93,13 @@ export default function AssistantScreen() {
     async (raw: string) => {
       const message = raw.trim();
       if (!message || busy) return;
+      hush();
       setBusy(true);
       setError(null);
       setText('');
       setTurns((prev) => [...prev, { id: `u${Date.now()}`, role: 'user', text: message }]);
       try {
-        if (!profile?.token && !(await ensureRegistered())) throw new ApiError(t('noConnection'), 0, true);
+        if (!token && !(await ensureRegistered())) throw new ApiError(t('noConnection'), 0, true);
         const out = await api.assistantChat(message);
         setTurns((prev) => [...prev, { id: `a${Date.now()}`, role: 'assistant', text: out.reply }]);
         setScheduled(out.scheduled);
@@ -83,22 +107,22 @@ export default function AssistantScreen() {
         if (out.action === 'confirm_schedule' && out.proposal?.status === 'scheduled') remindLocally(out.proposal, t);
         setSosHint(out.action === 'sos_help');
         if (out.action === 'sos_help') Vibration.vibrate([0, 400, 150, 400]);
-        if (voiceOut) speak(out.reply, VOICE_LANG);
+        if (voiceOut) talk(out.reply);
       } catch (err) {
         const e = err instanceof ApiError ? err : null;
         const msg = e?.status === 429 ? t('slowDown', { n: e.retryAfter || 30 }) : e?.message || t('noConnection');
         setError(msg);
-        if (voiceOut) speak(msg, VOICE_LANG);
+        if (voiceOut) talk(msg);
       } finally {
         setBusy(false);
       }
     },
-    [busy, ensureRegistered, profile?.token, t, voiceOut],
+    [busy, ensureRegistered, hush, token, t, talk, voiceOut],
   );
 
   const micDown = async () => {
     if (listening || busy) return;
-    stopSpeaking();
+    hush();
     setError(null);
     heardRef.current = '';
     releasedRef.current = false;
@@ -149,7 +173,7 @@ export default function AssistantScreen() {
   };
 
   const clear = async () => {
-    stopSpeaking();
+    hush();
     setTurns([]);
     try {
       await api.clearAssistantHistory();
@@ -163,18 +187,51 @@ export default function AssistantScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>🎙 {t('assistantTitle')}</Text>
-        <Pressable onPress={clear} accessibilityRole="button" style={styles.clear}>
-          <Text style={styles.clearText}>{t('clearChat')}</Text>
-        </Pressable>
+        <View style={styles.persona}>
+          <View style={[styles.avatar, speaking && styles.avatarOn]}>
+            <Text style={styles.avatarText}>{PERSONA[0]}</Text>
+          </View>
+          <View>
+            <Text style={styles.title}>{PERSONA}</Text>
+            <Text style={styles.subtitle}>{speaking ? 'Speaking… tap to stop' : t('assistantTitle')}</Text>
+          </View>
+        </View>
+        {speaking ? (
+          <Pressable onPress={hush} accessibilityRole="button" accessibilityLabel="Stop speaking" style={[styles.clear, styles.iconRow]}>
+            <Icon name="speaker" size={20} color={colors.inkSoft} />
+            <Text style={styles.clearText}>Stop</Text>
+          </Pressable>
+        ) : (
+          <Pressable onPress={clear} accessibilityRole="button" style={styles.clear}>
+            <Text style={styles.clearText}>{t('clearChat')}</Text>
+          </Pressable>
+        )}
       </View>
 
       <ScrollView ref={scrollRef} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        {turns.length === 0 ? <Text style={styles.hint}>{t('assistantHint')}</Text> : null}
-        {turns.map((turn) => (
-          <View key={turn.id} style={[styles.bubble, turn.role === 'user' ? styles.mine : styles.theirs]}>
-            <Text style={[styles.bubbleText, turn.role === 'user' && styles.mineText]}>{turn.text}</Text>
+        {turns.length === 0 ? (
+          <View style={styles.welcome}>
+            <View style={[styles.bubble, styles.theirs]}>
+              <Text style={styles.bubbleText}>{GREETING}</Text>
+            </View>
+            <View style={styles.chips}>
+              {SUGGESTIONS.map((s) => (
+                <Pressable key={s} onPress={() => send(s)} disabled={busy} style={styles.chip} accessibilityRole="button">
+                  <Text style={styles.chipText}>{s}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
+        ) : null}
+        {turns.map((turn) => (
+          <Pressable
+            key={turn.id}
+            onLongPress={turn.role === 'assistant' ? () => talk(turn.text) : undefined}
+            style={[styles.bubble, turn.role === 'user' ? styles.mine : styles.theirs]}
+          >
+            {turn.role === 'assistant' ? <Text style={styles.who}>{PERSONA}</Text> : null}
+            <Text style={[styles.bubbleText, turn.role === 'user' && styles.mineText]}>{turn.text}</Text>
+          </Pressable>
         ))}
         {busy ? <ActivityIndicator color={colors.sea} style={styles.spinner} /> : null}
 
@@ -204,9 +261,12 @@ export default function AssistantScreen() {
               .filter((s) => s.status === 'scheduled')
               .map((s) => (
                 <Pressable key={s.id} onPress={() => router.push('/trip')} style={styles.scheduledRow} accessibilityRole="button">
-                  <Text style={styles.scheduledText}>
-                    ⛵ {s.day_label} · {s.depart_label} → {s.return_label}
-                  </Text>
+                  <View style={[styles.iconRow, styles.flex]}>
+                    <Icon name="sail" size={20} color={colors.sea} />
+                    <Text style={styles.scheduledText}>
+                      {s.day_label} · {s.depart_label} → {s.return_label}
+                    </Text>
+                  </View>
                   <LevelPill level={s.verdict} />
                 </Pressable>
               ))}
@@ -215,7 +275,12 @@ export default function AssistantScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        {error ? <Text style={styles.error}>⚠ {error}</Text> : null}
+        {error ? (
+          <View style={[styles.iconRow, styles.center]}>
+            <Icon name="alert" size={18} color={colors.unsafe} />
+            <Text style={styles.error}>{error}</Text>
+          </View>
+        ) : null}
         <View style={styles.inputRow}>
           <TextInput
             value={text}
@@ -234,7 +299,7 @@ export default function AssistantScreen() {
             accessibilityRole="button"
             accessibilityLabel={t('ask')}
           >
-            <Text style={styles.sendText}>➤</Text>
+            <Icon name="send" size={24} color={colors.white} />
           </Pressable>
         </View>
         <View style={styles.micRow}>
@@ -250,7 +315,7 @@ export default function AssistantScreen() {
             accessibilityLabel={t('holdToTalk')}
             style={[styles.mic, listening && styles.micOn, (busy || !canUseVoice) && styles.off]}
           >
-            <Text style={styles.micIcon}>🎤</Text>
+            <Icon name="mic" size={38} color={colors.white} />
           </Pressable>
           <Text style={[styles.small, styles.micLabel]}>
             {busy ? t('assistantThinking') : listening ? t('listening') : canUseVoice ? t('holdToTalk') : t('voiceUnavailable')}
@@ -264,8 +329,27 @@ export default function AssistantScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   screen: { flex: 1, backgroundColor: colors.bg },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8 },
+  // Right padding leaves room for the floating Tools button the tab layout draws top-right.
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 16, paddingRight: 92, paddingVertical: 8 },
   title: { fontSize: 22, fontWeight: '900', color: colors.sea },
+  subtitle: { fontSize: 13, color: colors.inkSoft },
+  iconRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  center: { justifyContent: 'center' },
+  persona: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatar: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: colors.sea, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 3, borderColor: colors.card,
+  },
+  avatarOn: { borderColor: colors.safe },
+  avatarText: { fontSize: 20, fontWeight: '900', color: colors.white },
+  welcome: { gap: 12, marginTop: 8 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: {
+    minHeight: TOUCH, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 22,
+    borderWidth: 2, borderColor: colors.sea, backgroundColor: colors.card,
+  },
+  chipText: { fontSize: 15, fontWeight: '700', color: colors.sea },
+  who: { fontSize: 12, fontWeight: '800', color: colors.sea, marginBottom: 2 },
   clear: { minHeight: TOUCH, justifyContent: 'center', paddingHorizontal: 8 },
   clearText: { fontSize: 15, fontWeight: '700', color: colors.inkSoft },
   body: { paddingHorizontal: 16, paddingBottom: 16, gap: 10 },

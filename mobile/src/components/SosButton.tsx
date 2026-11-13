@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
+import { Animated, Easing, Keyboard, Pressable, StyleSheet, Text, Vibration, View, type ViewStyle } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { callCoastGuard, sendSos } from '../lib/sos';
@@ -15,6 +15,16 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 /**
+ * Where the SOS button sits. `bottom` is its normal offset above the tab bar. While the
+ * keyboard is up the tab bar is hidden and the window shrinks to the space above the
+ * keyboard, so the button would otherwise float over the text field being typed in.
+ */
+function sosPlacement(keyboardUp: boolean, bottom: number): ViewStyle {
+  // TODO(human): decide what the SOS button does while the keyboard is open.
+  return { bottom };
+}
+
+/**
  * Floating SOS button. Hold for 2 seconds: the ring fills, then the SMS composer
  * opens with the location. Releasing early cancels.
  */
@@ -26,6 +36,16 @@ export function SosButton({ bottom = 96 }: { bottom?: number }) {
   const [showCall, setShowCall] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [keyboardUp, setKeyboardUp] = useState(false);
+
+  useEffect(() => {
+    const shown = Keyboard.addListener('keyboardDidShow', () => setKeyboardUp(true));
+    const hidden = Keyboard.addListener('keyboardDidHide', () => setKeyboardUp(false));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
 
   useEffect(
     () => () => {
@@ -75,7 +95,7 @@ export function SosButton({ bottom = 96 }: { bottom?: number }) {
   const dashOffset = progress.interpolate({ inputRange: [0, 1], outputRange: [CIRCUMFERENCE, 0] });
 
   return (
-    <View pointerEvents="box-none" style={[styles.wrap, { bottom }]}>
+    <View pointerEvents="box-none" style={[styles.wrap, sosPlacement(keyboardUp, bottom)]}>
       {message ? (
         <View style={styles.bubble}>
           <Text style={styles.bubbleText}>{message}</Text>

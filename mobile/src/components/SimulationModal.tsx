@@ -3,6 +3,7 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View
 
 import type { StringKey } from '../i18n';
 import { api } from '../lib/api';
+import { useAdoptDemoPersona } from '../lib/demoPersona';
 import { useApp } from '../lib/store';
 import { TOUCH, colors } from '../lib/theme';
 import type { ReportType } from '../lib/types';
@@ -19,6 +20,7 @@ const WEATHER: { mode: string; icon: string }[] = [
   { mode: 'high_swell', icon: '🌀' },
   { mode: 'storm', icon: '🌪' },
   { mode: 'cyclone', icon: '🚨' },
+  { mode: 'kerala_week', icon: '🌴' },
 ];
 const WARNINGS = ['cyclone', 'rough_sea', 'high_wind', 'lightning'] as const;
 const HAZARDS: ReportType[] = ['harbour_mouth_rough', 'rough_sea', 'strong_current', 'boat_in_trouble', 'debris'];
@@ -34,6 +36,7 @@ export function SimulationModal() {
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState(apiUrl);
   const [showServer, setShowServer] = useState(false);
+  const adoptPersona = useAdoptDemoPersona();
 
   useEffect(() => setUrl(apiUrl), [apiUrl]);
   useEffect(() => {
@@ -122,6 +125,8 @@ export function SimulationModal() {
                 onPress={() => needTrip(t('loseSignal'), async (id) => { await api.loseSignal(id); await api.tick(); })} />
               <Chip label={`🔁 ${t('runMonitor')}`} disabled={busy} onPress={() => run(t('runMonitor'), () => api.tick())} />
               <Chip label={`🌱 ${t('seedData')}`} disabled={busy} onPress={() => run(t('seedData'), () => api.seed())} />
+              <Chip label={`🧑 ${t('demoFisher')}`} disabled={busy}
+                onPress={() => run(t('demoFisherDone'), async () => { await adoptPersona(); setCurrent((await api.health()).scenario); })} />
             </View>
 
             <Pressable

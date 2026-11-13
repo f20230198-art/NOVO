@@ -44,6 +44,10 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 for module in (users, advisor, assistant, schedule, trips, reports, warnings, alerts, community, family, buddies, sms, demo, dashboard):
     app.include_router(module.router)
 
+from .routers import sea_grid as _sea_grid_router  # noqa: E402  map overlay grid (wave texture, wind arrows)
+
+app.include_router(_sea_grid_router.router)
+
 
 @app.get("/health")
 def health():
