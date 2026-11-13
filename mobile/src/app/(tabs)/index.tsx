@@ -16,7 +16,7 @@ const CACHE_KEY = 'seasafe.forecast';
 type Cached = { forecast: Forecast; savedAt: string; boat: string; lang: string };
 
 export default function Home() {
-  const { profile, t } = useApp();
+  const { profile, t, setSimOpen } = useApp();
   const router = useRouter();
 
   const [forecast, setForecast] = useState<Forecast | null>(null);
@@ -200,7 +200,9 @@ export default function Home() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.brand}>🌊 {t('appName')}</Text>
+        <Pressable onLongPress={() => setSimOpen(true)} delayLongPress={800}>
+          <Text style={styles.brand}>🌊 {t('appName')}</Text>
+        </Pressable>
         <Text style={styles.place} numberOfLines={1}>
           📍 {profile.home_name}
         </Text>

@@ -14,14 +14,15 @@ import httpx
 from sqlmodel import Session, select
 
 from ..config import settings
-from ..models import Alert, Contact, User
+from ..models import Alert, Contact, FamilyDevice, User
 
 log = logging.getLogger("seasafe.notify")
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
 
-def _log(session: Session, *, user_id, trip_id, kind, channel, recipient, message, status) -> Alert:
-    alert = Alert(user_id=user_id, trip_id=trip_id, kind=kind, channel=channel, recipient=recipient, message=message, status=status)
+def _log(session: Session, *, user_id, trip_id, kind, channel, recipient, message, status, contact_id=None) -> Alert:
+    alert = Alert(user_id=user_id, trip_id=trip_id, contact_id=contact_id, kind=kind, channel=channel,
+                  recipient=recipient, message=message, status=status)
     session.add(alert)
     session.commit()
     session.refresh(alert)
@@ -80,9 +81,13 @@ async def send_to_fisher(session: Session, user: User, message: str, kind: str, 
 async def send_to_contact(
     session: Session, contact: Contact, message: str, kind: str, user_id: Optional[int] = None, trip_id: Optional[int] = None
 ) -> list[Alert]:
-    """SMS and/or Telegram to one emergency contact; simulated when neither is configured."""
+    """SMS, Telegram and/or the family's Sea Safe app for one emergency contact.
+
+    Logged as `simulated` only when no channel at all can reach the contact.
+    """
     alerts: list[Alert] = []
     label = f"{contact.name} ({contact.relation})" if contact.relation else contact.name
+    cid = contact.id
 
     if twilio_configured() and contact.phone:
         try:
@@ -91,7 +96,7 @@ async def send_to_contact(
         except httpx.HTTPError as exc:
             log.warning("twilio sms failed: %s", exc)
             status = "failed"
-        alerts.append(_log(session, user_id=user_id, trip_id=trip_id, kind=kind, channel="sms",
+        alerts.append(_log(session, user_id=user_id, trip_id=trip_id, kind=kind, channel="sms", contact_id=cid,
                            recipient=f"{label} {contact.phone}", message=message, status=status))
 
     if settings.telegram_bot_token and contact.telegram_chat_id:
@@ -101,11 +106,24 @@ async def send_to_contact(
         except httpx.HTTPError as exc:
             log.warning("telegram send failed: %s", exc)
             status = "failed"
-        alerts.append(_log(session, user_id=user_id, trip_id=trip_id, kind=kind, channel="telegram",
+        alerts.append(_log(session, user_id=user_id, trip_id=trip_id, kind=kind, channel="telegram", contact_id=cid,
                            recipient=f"{label} (Telegram)", message=message, status=status))
 
+    # The family member's own phone running Sea Safe: the message lands in its inbox (it
+    # polls), plus an Expo push when the phone registered a push token.
+    devices = session.exec(select(FamilyDevice).where(FamilyDevice.contact_id == cid)).all() if cid else []
+    if devices:
+        for d in devices:
+            if d.expo_push_token:
+                try:
+                    await _expo_push(d.expo_push_token, "Sea Safe", message, {"kind": kind, "trip_id": trip_id})
+                except (httpx.HTTPError, ValueError) as exc:
+                    log.warning("family push failed: %s", exc)
+        alerts.append(_log(session, user_id=user_id, trip_id=trip_id, kind=kind, channel="message", contact_id=cid,
+                           recipient=f"{label} {contact.phone}".strip(), message=message, status="sent"))
+
     if not alerts:
-        alerts.append(_log(session, user_id=user_id, trip_id=trip_id, kind=kind, channel="simulated",
+        alerts.append(_log(session, user_id=user_id, trip_id=trip_id, kind=kind, channel="simulated", contact_id=cid,
                            recipient=f"{label} {contact.phone}".strip(), message=message, status="simulated"))
     return alerts
 

@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SimulationModal } from '../../components/SimulationModal';
 import { SosButton } from '../../components/SosButton';
 import { useApp } from '../../lib/store';
 import { colors } from '../../lib/theme';
@@ -13,15 +14,16 @@ function icon(glyph: string) {
 }
 
 export default function TabsLayout() {
-  const { profile, t } = useApp();
+  const { profile, family, t } = useApp();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
-    if (!profile) router.replace('/onboarding');
-  }, [profile, router]);
+    if (family) router.replace('/family');
+    else if (!profile) router.replace('/onboarding');
+  }, [profile, family, router]);
 
-  if (!profile) return <View style={styles.flex} />;
+  if (!profile || family) return <View style={styles.flex} />;
 
   const barHeight = 66 + insets.bottom;
   return (
@@ -44,6 +46,8 @@ export default function TabsLayout() {
       </Tabs>
       {/* SOS floats above every tab. */}
       <SosButton bottom={barHeight + 12} />
+      {/* Simulation pop-up: long-press the title on Home or Profile. */}
+      <SimulationModal />
     </View>
   );
 }

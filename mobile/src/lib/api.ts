@@ -6,6 +6,9 @@ import type {
   ChatMessage,
   CommunityEvent,
   Contact,
+  FamilyLink,
+  FamilyMessage,
+  FamilyStatus,
   Forecast,
   Profile,
   Report,
@@ -18,6 +21,11 @@ const DEFAULT_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:8001';
 
 let baseUrl = DEFAULT_URL;
 let userToken: string | undefined;
+let familyToken: string | undefined;
+
+export function setFamilyToken(token: string | undefined) {
+  familyToken = token;
+}
 
 export function setBaseUrl(url: string | null | undefined) {
   baseUrl = (url && url.trim() ? url.trim() : DEFAULT_URL).replace(/\/+$/, '');
@@ -49,6 +57,7 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (options.body !== undefined) headers['Content-Type'] = 'application/json';
     if (userToken) headers['X-User-Token'] = userToken;
+    if (familyToken) headers['X-Family-Token'] = familyToken;
     const resp = await fetch(baseUrl + path, {
       method: options.method ?? 'GET',
       headers,
@@ -156,7 +165,19 @@ export const api = {
   rsvp: (id: number, going: boolean) =>
     request<CommunityEvent>(`/community/events/${id}/rsvp`, { method: 'POST', body: { going } }),
 
-  setScenario: (mode: string) => request<{ mode: string }>('/demo/scenario', { method: 'POST', body: { mode } }),
+  familyLink: (code: string, expoPushToken?: string | null) =>
+    request<FamilyLink>('/family/link', { method: 'POST', body: { code, expo_push_token: expoPushToken ?? null } }),
+  familyMe: () => request<FamilyStatus>('/family/me'),
+  familyMessages: (afterId = 0) => request<FamilyMessage[]>(`/family/messages${query({ after_id: afterId })}`),
+  familyUnlink: () => request<{ ok: boolean }>('/family/me', { method: 'DELETE' }),
+
+  setScenario: (mode: string, lat?: number, lon?: number) =>
+    request<{ mode: string; warning_id: number | null }>('/demo/scenario', { method: 'POST', body: { mode, lat, lon } }),
+  injectWarning: (kind: string, lat: number, lon: number) =>
+    request<unknown>('/demo/inject/warning', { method: 'POST', body: { kind, lat, lon } }),
+  injectReport: (type: ReportType, lat: number, lon: number) =>
+    request<unknown>('/demo/inject/report', { method: 'POST', body: { type, lat, lon } }),
+  clearInjections: () => request<{ mode: string; removed: number }>('/demo/inject/clear', { method: 'POST' }),
   seed: () => request<unknown>('/demo/seed', { method: 'POST' }),
   fastForward: (tripId: number) => request<unknown>(`/demo/trips/${tripId}/fast-forward`, { method: 'POST' }),
   loseSignal: (tripId: number) => request<unknown>(`/demo/trips/${tripId}/lose-signal`, { method: 'POST' }),

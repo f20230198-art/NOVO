@@ -40,7 +40,7 @@
   li.auto { border-left: 5px solid var(--unsafe); padding-left: 10px; background: #FFF1F2; }
   li .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
   li .row button { width: auto; padding: 4px 10px; font-size: 12px; }
-  .tag.simulated { background: #E3E9F0; color: var(--ink); } .tag.sms, .tag.telegram, .tag.push { background: var(--sea); color: #fff; }
+  .tag.simulated { background: #E3E9F0; color: var(--ink); } .tag.sms, .tag.telegram, .tag.push, .tag.message { background: var(--sea); color: #fff; }
   .tag.head_back, .tag.morning_recheck, .tag.broadcast { background: var(--caution); color: var(--ink); }
   .tag.active { background: #E3E9F0; color: var(--ink); }
   .meta { color: var(--ink-soft); font-size: 13px; }
@@ -149,6 +149,7 @@
         <label for="scenario" style="margin:0">Weather</label>
         <select id="scenario">
           <option>real</option><option>calm</option><option>rough</option><option>storm</option><option>worsening</option>
+          <option>thunderstorm</option><option>heavy_rain</option><option>strong_wind</option><option>high_swell</option><option>cyclone</option>
         </select>
         <button class="quiet" id="seed" type="button">Seed demo data</button>
         <button class="quiet" id="tick" type="button">Run monitor now</button>

@@ -186,7 +186,29 @@ export type CommunityEvent = {
   channel: string;
 };
 
-export type Contact = { id?: number; name: string; phone: string; relation: string };
+export type Contact = { id?: number; name: string; phone: string; relation: string; link_code?: string | null; family_app?: boolean };
+
+export type FamilyStatus = {
+  contact: { name: string; relation: string };
+  fisher: { name: string; home_name: string; boat_type: BoatType | '' };
+  trip: {
+    status: Trip['status'];
+    started_at: string;
+    planned_return: string;
+    ended_at: string | null;
+    last_contact_at: string | null;
+  } | null;
+};
+
+export type FamilyLink = FamilyStatus & { token: string };
+
+export type FamilyMessage = {
+  id: number;
+  kind: 'overdue' | 'sos' | 'auto_sos' | 'all_clear' | 'extended';
+  text: string;
+  created_at: string;
+  urgent: boolean;
+};
 
 export type Profile = {
   name: string;

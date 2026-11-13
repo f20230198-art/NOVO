@@ -23,7 +23,7 @@ python -m venv .venv
 .venv/Scripts/pytest -q
 ```
 
-95 tests. They need no network and no keys: the weather fetch is patched to fail, the demo scenarios run on built-in placeholder rows, and the LLM is a fake where a test needs one.
+105 tests. They need no network and no keys: the weather fetch is patched to fail, the demo scenarios run on built-in placeholder rows, and the LLM is a fake where a test needs one.
 
 ## Environment (`.env`, copy from `.env.example`)
 
@@ -50,7 +50,8 @@ python -m venv .venv
 - `services/escalation.py` decides the overdue timeline: how long the fisher gets to answer "are you back?" before the contacts are told (0 in an UNSAFE sea, up to 30 min when the phone is back at the harbour), and when the **automatic SOS** fires: 90/120/180 min after overdue by boat type, only if the boat went more than 2 km out and the phone is silent for 60 min or still offshore (`thresholds.json` → `escalation`).
 - `services/llm.py` is the rotating Groq/Gemini key pool. `services/rag.py` builds the assistant's corpus per request (knowledge generated from thresholds, the asking fisher's own records, public local data marked untrusted) and ranks it with BM25. `services/guard.py` screens prompt injection and fences untrusted text. `services/assistant.py` runs one turn: retrieve, one stateless LLM call, validate, then carry out allow-listed actions (schedule / confirm / cancel a trip, SOS help) with the risk engine re-checked server-side. With no key it understands the same requests by rules.
 - `services/social.py` is the community: harbour chat (fishers within 50 km), events with RSVP and per-event chat, flagging (3 flags hide a message).
-- New endpoints: `/assistant/chat|history|status`, `/schedule` (+ `confirm`, `cancel`, `start`), `/community/messages|events`, `POST /trips/{id}/track` (positions queued offline), `/dashboard/community`, `/demo/trips/{id}/lose-signal`.
+- New endpoints: `/assistant/chat|history|status`, `/schedule` (+ `confirm`, `cancel`, `start`), `/community/messages|events`, `POST /trips/{id}/track` (positions queued offline), `/dashboard/community`, `/demo/trips/{id}/lose-signal`, `/family/link|me|messages|push` (the family phone, `X-Family-Token`), `/demo/inject/warning|report|clear`, and the weather scenarios `thunderstorm`, `heavy_rain`, `strong_wind`, `high_swell`, `cyclone`.
+- **Family phone.** Every contact gets a 6-digit `link_code`. A phone linked with it receives every alert to that contact (overdue, SOS, automatic SOS, back safely, more time) in its inbox and as an Expo push when available; those alerts are logged with channel `message`. Linking is rate-limited against code guessing, and removing the contact unlinks the phone.
 - `services/notify.py` sends Expo push / Twilio SMS / Telegram and writes every attempt to the `Alert` table.
 
 ## Choices made where the spec was open

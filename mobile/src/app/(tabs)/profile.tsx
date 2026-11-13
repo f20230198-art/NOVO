@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { ContactsEditor, HarbourPicker, type Harbour } from '../../components/pickers';
 import { Banner, BigButton, BoatPicker, Card, Choice, Field, Screen, SectionTitle } from '../../components/ui';
@@ -7,11 +8,10 @@ import { LANGUAGES } from '../../i18n';
 import { api } from '../../lib/api';
 import { useApp } from '../../lib/store';
 import { colors } from '../../lib/theme';
-
-const SCENARIOS = ['real', 'calm', 'rough', 'storm', 'worsening'] as const;
+import type { Contact } from '../../lib/types';
 
 export default function ProfileScreen() {
-  const { profile, contacts, trip, apiUrl, t, updateProfile, addContact, removeContact, setApiUrl, ensureRegistered } = useApp();
+  const { profile, contacts, t, updateProfile, addContact, removeContact, setSimOpen } = useApp();
 
   const [name, setName] = useState(profile?.name ?? '');
   const [phone, setPhone] = useState(profile?.phone ?? '');
@@ -21,22 +21,21 @@ export default function ProfileScreen() {
     name: profile?.home_name ?? '',
   });
   const [savedNote, setSavedNote] = useState(false);
+  const [codes, setCodes] = useState<Contact[]>([]);
 
-  const [demo, setDemo] = useState(false);
-  const [url, setUrl] = useState(apiUrl);
-  const [scenario, setScenario] = useState<string | null>(null);
-  const [demoNote, setDemoNote] = useState<string | null>(null);
-  const [demoBusy, setDemoBusy] = useState(false);
-
-  useEffect(() => setUrl(apiUrl), [apiUrl]);
-
-  useEffect(() => {
-    if (!demo) return;
-    api
-      .health()
-      .then((h) => setScenario(h.scenario))
-      .catch(() => setDemoNote(t('noConnection')));
-  }, [demo, apiUrl, t]);
+  // Family codes come from the server (each contact gets one when it is saved there).
+  useFocusEffect(
+    useCallback(() => {
+      if (!profile?.token) return;
+      let cancelled = false;
+      api.listContacts().then((list) => !cancelled && setCodes(list)).catch(() => {});
+      const id = setInterval(() => api.listContacts().then((list) => !cancelled && setCodes(list)).catch(() => {}), 8000);
+      return () => {
+        cancelled = true;
+        clearInterval(id);
+      };
+    }, [profile?.token, contacts.length]),
+  );
 
   if (!profile) return null;
 
@@ -52,20 +51,9 @@ export default function ProfileScreen() {
     setTimeout(() => setSavedNote(false), 2500);
   };
 
-  const run = async (action: () => Promise<string>) => {
-    setDemoBusy(true);
-    setDemoNote(null);
-    try {
-      setDemoNote(await action());
-    } catch {
-      setDemoNote(t('noConnection'));
-    } finally {
-      setDemoBusy(false);
-    }
-  };
-
   return (
-    <Screen title={t('profile')} onTitleLongPress={() => setDemo(true)}>
+    // Long-press the title to open the simulation pop-up.
+    <Screen title={t('profile')} onTitleLongPress={() => setSimOpen(true)}>
       {!profile.token ? <Banner icon="📴" tone="warn" text={t('notRegistered')} /> : null}
 
       <Card>
@@ -97,100 +85,39 @@ export default function ProfileScreen() {
         <ContactsEditor contacts={contacts} onAdd={addContact} onRemove={removeContact} t={t} />
       </Card>
 
-      {/* Hidden demo panel: long-press the "Profile" title. */}
-      <Modal visible={demo} animationType="slide" onRequestClose={() => setDemo(false)}>
-        <ScrollView contentContainerStyle={styles.demoBody} keyboardShouldPersistTaps="handled">
-          <Text style={styles.demoTitle}>🎬 {t('demoPanel')}</Text>
-          {demoNote ? <Banner text={demoNote} /> : null}
-
-          <Field label={t('serverUrl')} value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" />
-          <BigButton
-            label={t('save')}
-            icon="💾"
-            onPress={() =>
-              run(async () => {
-                await setApiUrl(url);
-                const health = await api.health();
-                setScenario(health.scenario);
-                await ensureRegistered();
-                return `OK · ${url}`;
-              })
-            }
-            busy={demoBusy}
-          />
-
-          <Text style={styles.demoSection}>{t('scenario')}</Text>
-          <View style={styles.row}>
-            {SCENARIOS.map((mode) => (
-              <Choice
-                key={mode}
-                label={mode}
-                selected={scenario === mode}
-                onPress={() =>
-                  run(async () => {
-                    const result = await api.setScenario(mode);
-                    setScenario(result.mode);
-                    return `${t('scenario')}: ${result.mode}`;
-                  })
-                }
-              />
-            ))}
-          </View>
-
-          <BigButton label={t('seedData')} icon="🌱" onPress={() => run(async () => (await api.seed(), t('done')))} color={colors.inkSoft} busy={demoBusy} />
-          <BigButton
-            label={t('fastForward')}
-            icon="⏩"
-            color={colors.inkSoft}
-            busy={demoBusy}
-            onPress={() =>
-              run(async () => {
-                if (!trip) return t('noActiveTrip');
-                await api.fastForward(trip.id);
-                return t('done');
-              })
-            }
-          />
-          <BigButton
-            label={t('loseSignal')}
-            icon="📡"
-            color={colors.inkSoft}
-            busy={demoBusy}
-            onPress={() =>
-              run(async () => {
-                if (!trip) return t('noActiveTrip');
-                await api.loseSignal(trip.id);
-                await api.tick();
-                return t('done');
-              })
-            }
-          />
-          <BigButton
-            label={t('runMonitor')}
-            icon="🔁"
-            color={colors.inkSoft}
-            busy={demoBusy}
-            onPress={() =>
-              run(async () => {
-                const r = await api.tick();
-                return `checked ${r.checked} · overdue ${r.overdue} · alerts ${r.alerts}`;
-              })
-            }
-          />
-          <Text style={styles.demoHint}>
-            user #{profile.user_id ?? '–'} · Telegram: /start {profile.token ?? '–'}
-          </Text>
-          <BigButton label={t('back')} onPress={() => setDemo(false)} color={colors.line} textColor={colors.ink} />
-        </ScrollView>
-      </Modal>
+      {codes.length > 0 ? (
+        <Card>
+          <SectionTitle>📲 {t('familyCodes')}</SectionTitle>
+          <Text style={styles.hint}>{t('familyCodesHint')}</Text>
+          {codes.map((c) => (
+            <View key={c.id} style={styles.codeRow}>
+              <View style={styles.flex}>
+                <Text style={styles.codeName}>
+                  {c.name}
+                  {c.relation ? ` (${c.relation})` : ''}
+                </Text>
+                <Text style={[styles.codeState, c.family_app && styles.codeLinked]}>
+                  {c.family_app ? `✔ ${t('familyLinked')}` : t('familyNotLinked')}
+                </Text>
+              </View>
+              <Text style={styles.code} selectable accessibilityLabel={`${c.name} ${c.link_code ?? ''}`}>
+                {c.link_code ? `${c.link_code.slice(0, 3)} ${c.link_code.slice(3)}` : '—'}
+              </Text>
+            </View>
+          ))}
+        </Card>
+      ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  demoBody: { padding: 16, paddingTop: 48, gap: 12, backgroundColor: colors.bg, flexGrow: 1 },
-  demoTitle: { fontSize: 26, fontWeight: '900', color: colors.ink },
-  demoSection: { fontSize: 18, fontWeight: '800', color: colors.ink, marginTop: 6 },
-  demoHint: { fontSize: 13, color: colors.inkSoft },
+  hint: { fontSize: 14, lineHeight: 20, color: colors.inkSoft, marginBottom: 8 },
+  codeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: 1, borderColor: colors.line },
+  codeName: { fontSize: 17, fontWeight: '800', color: colors.ink },
+  codeState: { fontSize: 13, color: colors.inkSoft },
+  codeLinked: { color: colors.safe, fontWeight: '800' },
+  code: { fontSize: 26, fontWeight: '900', color: colors.sea, letterSpacing: 2, fontVariant: ['tabular-nums'] },
 });

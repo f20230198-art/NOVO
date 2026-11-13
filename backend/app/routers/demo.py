@@ -6,17 +6,18 @@ Do not deploy these to a real service.
 import json
 import secrets
 from datetime import timedelta
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session, utcnow
-from ..models import (Alert, AssistantMessage, ChatMessage, CommunityEvent, Contact, Report, ScheduledTrip, Trip, User,
-                      Warning)
+from ..models import (Alert, AssistantMessage, ChatMessage, CommunityEvent, Contact, FamilyDevice, Report, ScheduledTrip,
+                      Trip, User, Warning)
 from ..services import community, escalation, forecast, monitor, social
+from ..services.family import new_link_code
 
 def _demo_only() -> None:
     if not settings.demo_mode:
@@ -37,13 +38,93 @@ SPOTS = [
 
 
 class ScenarioIn(BaseModel):
-    mode: Literal["real", "calm", "rough", "storm", "worsening"]
+    mode: Literal["real", "calm", "rough", "storm", "worsening", "thunderstorm", "heavy_rain", "strong_wind",
+                  "high_swell", "cyclone"]
+    # Where to put the official warning that comes with a cyclone (the fisher's harbour).
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lon: Optional[float] = Field(default=None, ge=-180, le=180)
+
+
+INJECT_SOURCE = "Coast control room"
+WARNING_TEXT = {
+    "cyclone": ("Cyclone alert", "A cyclonic storm is approaching the coast. Winds up to 100 km/h, waves over 4 m. "
+                "Fishers must not go to sea. Boats at sea must return to the nearest harbour now."),
+    "rough_sea": ("Rough sea warning", "Waves up to 3 m expected offshore. Small boats are advised to stay ashore."),
+    "high_wind": ("High wind warning", "Squally winds of 45-55 km/h gusting to 65 km/h along the coast."),
+    "lightning": ("Thunderstorm and lightning warning", "Thunderstorms with lightning likely over the sea. Stay ashore."),
+}
+
+
+class WarningInject(BaseModel):
+    kind: Literal["cyclone", "rough_sea", "high_wind", "lightning"] = "rough_sea"
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    radius_km: float = Field(default=50, gt=0, le=500)
+    hours: int = Field(default=12, ge=1, le=72)
+
+
+class ReportInject(BaseModel):
+    type: Literal["rough_sea", "storm", "harbour_mouth_rough", "strong_current", "debris", "oil_spill", "boat_in_trouble"]
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    note: Optional[str] = Field(default=None, max_length=200)
+
+
+def _post_warning(session: Session, kind: str, lat: float, lon: float, radius_km: float = 50, hours: int = 12) -> Warning:
+    title, message = WARNING_TEXT[kind]
+    now = utcnow()
+    w = Warning(title=title, message=message, center_lat=lat, center_lon=lon, radius_km=radius_km,
+                starts_at=now, expires_at=now + timedelta(hours=hours), source=INJECT_SOURCE)
+    session.add(w)
+    session.commit()
+    session.refresh(w)
+    return w
 
 
 @router.post("/scenario")
-def set_scenario(body: ScenarioIn):
+def set_scenario(body: ScenarioIn, session: Session = Depends(get_session)):
     forecast.set_scenario(body.mode)
-    return {"mode": forecast.get_scenario()}
+    warning_id = None
+    if body.mode == "cyclone" and body.lat is not None and body.lon is not None:
+        warning_id = _post_warning(session, "cyclone", body.lat, body.lon, radius_km=150, hours=24).id
+    return {"mode": forecast.get_scenario(), "warning_id": warning_id}
+
+
+@router.get("/scenarios")
+def list_scenarios():
+    return {"modes": list(forecast.SCENARIOS), "current": forecast.get_scenario()}
+
+
+@router.post("/inject/warning")
+def inject_warning(body: WarningInject, session: Session = Depends(get_session)):
+    w = _post_warning(session, body.kind, body.lat, body.lon, body.radius_km, body.hours)
+    return community.warning_out(w)
+
+
+@router.post("/inject/report")
+def inject_report(body: ReportInject, session: Session = Depends(get_session)):
+    """A hazard report already confirmed by another fisher, so it changes the risk at once."""
+    r = community.create_report(session, body.type, body.lat, body.lon, body.note, anonymous=True, user_id=None)
+    r.up = max(r.up, 1)
+    session.add(r)
+    session.commit()
+    session.refresh(r)
+    return community.report_out(session, r)
+
+
+@router.post("/inject/clear")
+def inject_clear(session: Session = Depends(get_session)):
+    """Back to the real forecast, and remove every injected warning and report."""
+    forecast.set_scenario("real")
+    removed = 0
+    for w in session.exec(select(Warning).where(Warning.source == INJECT_SOURCE)).all():
+        session.delete(w)
+        removed += 1
+    for r in session.exec(select(Report).where(Report.user_id == None, Report.anonymous == True)).all():  # noqa: E711,E712
+        session.delete(r)
+        removed += 1
+    session.commit()
+    return {"mode": "real", "removed": removed}
 
 
 @router.get("/scenario")
@@ -95,6 +176,11 @@ async def tick():
 def _clear_seed(session: Session) -> None:
     users = session.exec(select(User).where(User.phone.startswith(SEED_PHONE_PREFIX))).all()  # type: ignore[union-attr]
     ids = [u.id for u in users]
+    if ids:
+        contact_ids = [c.id for c in session.exec(select(Contact).where(Contact.user_id.in_(ids))).all()]  # type: ignore[union-attr]
+        if contact_ids:
+            for d in session.exec(select(FamilyDevice).where(FamilyDevice.contact_id.in_(contact_ids))).all():  # type: ignore[union-attr]
+                session.delete(d)
     for model in (Contact, Trip, Alert, Report, ScheduledTrip, AssistantMessage, ChatMessage):
         if ids:
             for row in session.exec(select(model).where(model.user_id.in_(ids))).all():  # type: ignore[union-attr]
@@ -124,8 +210,11 @@ def seed(session: Session = Depends(get_session)):
         session.add(user)
         session.commit()
         session.refresh(user)
-        session.add(Contact(user_id=user.id, name=f"{name}'s family", phone=phone[:-1] + "9", relation="family"))
-        session.add(Contact(user_id=user.id, name=f"{harbour} co-op", phone=phone[:-1] + "8", relation="co-op"))
+        session.add(Contact(user_id=user.id, name=f"{name}'s family", phone=phone[:-1] + "9", relation="family",
+                            link_code=new_link_code(session)))
+        session.commit()
+        session.add(Contact(user_id=user.id, name=f"{harbour} co-op", phone=phone[:-1] + "8", relation="co-op",
+                            link_code=new_link_code(session)))
         users.append(user)
     session.commit()
     biju, selvan, antony, rashid = users

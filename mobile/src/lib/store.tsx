@@ -2,15 +2,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { translate, type Translate } from '../i18n';
-import { ApiError, api, getBaseUrl, setBaseUrl, setToken } from './api';
+import { ApiError, api, getBaseUrl, setBaseUrl, setFamilyToken, setToken } from './api';
 import { registerForPush } from './notifications';
-import type { Contact, Profile, Trip } from './types';
+import type { Contact, FamilyLink, Profile, Trip } from './types';
 
 const KEYS = {
   profile: 'seasafe.profile',
   contacts: 'seasafe.contacts',
   apiUrl: 'seasafe.apiUrl',
   trip: 'seasafe.trip',
+  family: 'seasafe.family',
 };
 
 export async function loadJson<T>(key: string): Promise<T | null> {
@@ -45,6 +46,12 @@ type AppState = {
   setTrip: (trip: Trip | null) => void;
   setApiUrl: (url: string) => Promise<void>;
   ensureRegistered: () => Promise<boolean>;
+  /** Set when this phone belongs to a fisher's family member instead of a fisher. */
+  family: FamilyLink | null;
+  setFamily: (link: FamilyLink | null) => Promise<void>;
+  /** The simulation pop-up (weather and event injection). */
+  simOpen: boolean;
+  setSimOpen: (open: boolean) => void;
 };
 
 const Ctx = createContext<AppState | null>(null);
@@ -55,6 +62,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [trip, setTripState] = useState<Trip | null>(null);
   const [apiUrl, setApiUrlState] = useState(getBaseUrl());
+  const [family, setFamilyState] = useState<FamilyLink | null>(null);
+  const [simOpen, setSimOpen] = useState(false);
 
   // Latest values for callbacks that outlive a render.
   const profileRef = useRef<Profile | null>(null);
@@ -100,14 +109,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      const [savedUrl, savedProfile, savedContacts, savedTrip] = await Promise.all([
+      const [savedUrl, savedProfile, savedContacts, savedTrip, savedFamily] = await Promise.all([
         loadJson<string>(KEYS.apiUrl),
         loadJson<Profile>(KEYS.profile),
         loadJson<Contact[]>(KEYS.contacts),
         loadJson<Trip>(KEYS.trip),
+        loadJson<FamilyLink>(KEYS.family),
       ]);
       setBaseUrl(savedUrl);
       setApiUrlState(getBaseUrl());
+      if (savedFamily) {
+        setFamilyToken(savedFamily.token);
+        setFamilyState(savedFamily);
+      }
       if (savedProfile) {
         profileRef.current = savedProfile;
         setProfile(savedProfile);
@@ -194,6 +208,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await saveJson(KEYS.apiUrl, url.trim() || null);
   }, []);
 
+  const setFamily = useCallback(async (link: FamilyLink | null) => {
+    setFamilyToken(link?.token);
+    setFamilyState(link);
+    await saveJson(KEYS.family, link);
+  }, []);
+
   const lang = profile?.language ?? 'en';
   const t = useCallback<Translate>((key, params) => translate(lang, key, params), [lang]);
 
@@ -201,8 +221,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     () => ({
       ready, profile, contacts, trip, apiUrl, t,
       completeOnboarding, updateProfile, addContact, removeContact, setTrip, setApiUrl, ensureRegistered,
+      family, setFamily, simOpen, setSimOpen,
     }),
-    [ready, profile, contacts, trip, apiUrl, t, completeOnboarding, updateProfile, addContact, removeContact, setTrip, setApiUrl, ensureRegistered],
+    [ready, profile, contacts, trip, apiUrl, t, completeOnboarding, updateProfile, addContact, removeContact, setTrip, setApiUrl,
+      ensureRegistered, family, setFamily, simOpen],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

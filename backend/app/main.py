@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .db import init_db
-from .routers import advisor, alerts, assistant, community, dashboard, demo, reports, schedule, trips, users, warnings
+from .routers import (advisor, alerts, assistant, community, dashboard, demo, family, reports, schedule, trips, users,
+                      warnings)
 from .services import advisor as advisor_service
 from .services import forecast, llm, monitor, notify
 
@@ -40,7 +41,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Sea Safe API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-for module in (users, advisor, assistant, schedule, trips, reports, warnings, alerts, community, demo, dashboard):
+for module in (users, advisor, assistant, schedule, trips, reports, warnings, alerts, community, family, demo, dashboard):
     app.include_router(module.router)
 
 

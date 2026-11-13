@@ -31,6 +31,18 @@ class Contact(SQLModel, table=True):
     phone: str = ""
     relation: str = ""
     telegram_chat_id: Optional[str] = None
+    # 6-digit code the family member types into Sea Safe on their own phone to receive alerts.
+    link_code: Optional[str] = Field(default=None, index=True)
+
+
+class FamilyDevice(SQLModel, table=True):
+    """A family member's phone, linked to one emergency contact. It receives every alert
+    sent to that contact (overdue, SOS, automatic SOS, back safely)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    contact_id: int = Field(index=True)
+    token: str = Field(index=True, unique=True)
+    expo_push_token: Optional[str] = None
+    created_at: NaiveDatetime = Field(default_factory=utcnow)
 
 
 class Trip(SQLModel, table=True):
@@ -155,6 +167,7 @@ class Alert(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = Field(default=None, index=True)
     trip_id: Optional[int] = Field(default=None, index=True)
+    contact_id: Optional[int] = Field(default=None, index=True)  # set for alerts to an emergency contact
     kind: str  # overdue_check/overdue/auto_sos/head_back/sos/morning_recheck/trip_reminder/all_clear/extended
     channel: str  # push/sms/telegram/simulated
     recipient: str

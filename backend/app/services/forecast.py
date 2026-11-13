@@ -22,7 +22,32 @@ WEATHER_URL = (
     "&wind_speed_unit=kmh&timezone=auto&forecast_days=7"
 )
 CACHE_TTL_S = 30 * 60
-SCENARIOS = ("real", "calm", "rough", "storm", "worsening")
+SCENARIOS = ("real", "calm", "rough", "storm", "worsening", "thunderstorm", "heavy_rain", "strong_wind", "high_swell", "cyclone")
+
+# Sea and weather values for each simulated condition (applied to every hour).
+SCENARIO_ROWS = {
+    "calm": {"wave_height": 0.4, "wave_period": 9.0, "wind_wave_height": 0.2, "swell_wave_height": 0.3,
+             "wind_speed": 8.0, "wind_gust": 12.0, "precipitation": 0.0, "weather_code": 1},
+    "rough": {"wave_height": 1.8, "wave_period": 7.0, "wind_wave_height": 1.3, "swell_wave_height": 1.2,
+              "wind_speed": 26.0, "wind_gust": 36.0, "precipitation": 0.5, "weather_code": 3},
+    "storm": {"wave_height": 3.0, "wave_period": 6.5, "wind_wave_height": 2.4, "swell_wave_height": 1.8,
+              "wind_speed": 45.0, "wind_gust": 60.0, "precipitation": 9.0, "weather_code": 95},
+    # Lightning: UNSAFE for every boat even though the sea itself is moderate.
+    "thunderstorm": {"wave_height": 1.1, "wave_period": 7.5, "wind_wave_height": 0.8, "swell_wave_height": 0.7,
+                     "wind_speed": 24.0, "wind_gust": 45.0, "precipitation": 6.0, "weather_code": 95},
+    # Heavy rain, poor visibility: CAUTION for most boats.
+    "heavy_rain": {"wave_height": 0.9, "wave_period": 8.0, "wind_wave_height": 0.5, "swell_wave_height": 0.6,
+                   "wind_speed": 18.0, "wind_gust": 28.0, "precipitation": 12.0, "weather_code": 65},
+    # Gale-force wind with a building sea.
+    "strong_wind": {"wave_height": 2.0, "wave_period": 6.0, "wind_wave_height": 1.7, "swell_wave_height": 0.9,
+                    "wind_speed": 48.0, "wind_gust": 66.0, "precipitation": 0.0, "weather_code": 3},
+    # Long-period swell from a distant storm: calm wind, big waves.
+    "high_swell": {"wave_height": 2.7, "wave_period": 13.0, "wind_wave_height": 0.3, "swell_wave_height": 2.6,
+                   "wind_speed": 10.0, "wind_gust": 16.0, "precipitation": 0.0, "weather_code": 2},
+    # Cyclone: the worst of everything (the simulation also posts an official warning).
+    "cyclone": {"wave_height": 4.5, "wave_period": 8.0, "wind_wave_height": 3.2, "swell_wave_height": 3.4,
+                "wind_speed": 75.0, "wind_gust": 100.0, "precipitation": 25.0, "weather_code": 99},
+}
 
 _cache: dict[tuple[float, float], dict] = {}  # key -> {"at": epoch, "data": forecast}
 _sea_points: dict[tuple[float, float], tuple[float, float]] = {}
@@ -187,21 +212,11 @@ def apply_scenario(rows: list[dict], mode: str, now: datetime) -> list[dict]:
     if mode == "real":
         return rows
     out = copy.deepcopy(rows)
-    calm = {"wave_height": 0.4, "wave_period": 9.0, "wind_wave_height": 0.2, "swell_wave_height": 0.3,
-            "wind_speed": 8.0, "wind_gust": 12.0, "precipitation": 0.0, "weather_code": 1}
-    rough = {"wave_height": 1.8, "wave_period": 7.0, "wind_wave_height": 1.3, "swell_wave_height": 1.2,
-             "wind_speed": 26.0, "wind_gust": 36.0, "precipitation": 0.5, "weather_code": 3}
-    storm = {"wave_height": 3.0, "wave_period": 6.5, "wind_wave_height": 2.4, "swell_wave_height": 1.8,
-             "wind_speed": 45.0, "wind_gust": 60.0, "precipitation": 9.0, "weather_code": 95}
     for row in out:
-        if mode == "calm":
-            row.update(calm)
-        elif mode == "rough":
-            row.update(rough)
-        elif mode == "storm":
-            row.update(storm)
+        if mode in SCENARIO_ROWS:
+            row.update(SCENARIO_ROWS[mode])
         elif mode == "worsening":
-            row.update(calm)
+            row.update(SCENARIO_ROWS["calm"])
             # `now` is when the scenario was switched on. Calm for the two hour slots
             # in progress, then the sea gets up quickly and stays up.
             anchor = now.replace(minute=0, second=0, microsecond=0)

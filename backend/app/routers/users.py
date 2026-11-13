@@ -7,7 +7,8 @@ from sqlmodel import Session, select
 
 from ..db import get_session, iso_utc
 from ..deps import current_user
-from ..models import Contact, User
+from ..models import Contact, FamilyDevice, User
+from ..services.family import ensure_codes, new_link_code
 from ..thresholds import BOAT_TYPES
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -56,8 +57,10 @@ def user_out(user: User) -> dict:
     }
 
 
-def contact_out(c: Contact) -> dict:
-    return {"id": c.id, "name": c.name, "phone": c.phone, "relation": c.relation, "telegram": bool(c.telegram_chat_id)}
+def contact_out(c: Contact, session: Optional[Session] = None) -> dict:
+    linked = bool(session and session.exec(select(FamilyDevice).where(FamilyDevice.contact_id == c.id)).first())
+    return {"id": c.id, "name": c.name, "phone": c.phone, "relation": c.relation, "telegram": bool(c.telegram_chat_id),
+            "link_code": c.link_code, "family_app": linked}
 
 
 @router.post("")
@@ -68,8 +71,8 @@ def register(body: UserIn, session: Session = Depends(get_session)):
     session.commit()
     session.refresh(user)
     for c in body.contacts:
-        session.add(Contact(user_id=user.id, **c.model_dump()))
-    session.commit()
+        session.add(Contact(user_id=user.id, link_code=new_link_code(session), **c.model_dump()))
+        session.commit()
     return {"user_id": user.id, "token": user.token, "user": user_out(user)}
 
 
@@ -93,16 +96,17 @@ def update_me(body: UserUpdate, user: User = Depends(current_user), session: Ses
 @router.get("/me/contacts")
 def list_contacts(user: User = Depends(current_user), session: Session = Depends(get_session)):
     rows = session.exec(select(Contact).where(Contact.user_id == user.id)).all()
-    return [contact_out(c) for c in rows]
+    ensure_codes(session, rows)
+    return [contact_out(c, session) for c in rows]
 
 
 @router.post("/me/contacts")
 def add_contact(body: ContactIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    contact = Contact(user_id=user.id, **body.model_dump())
+    contact = Contact(user_id=user.id, link_code=new_link_code(session), **body.model_dump())
     session.add(contact)
     session.commit()
     session.refresh(contact)
-    return contact_out(contact)
+    return contact_out(contact, session)
 
 
 @router.delete("/me/contacts/{contact_id}")
@@ -110,6 +114,8 @@ def delete_contact(contact_id: int, user: User = Depends(current_user), session:
     contact = session.get(Contact, contact_id)
     if contact is None or contact.user_id != user.id:
         raise HTTPException(status_code=404, detail="Contact not found")
+    for device in session.exec(select(FamilyDevice).where(FamilyDevice.contact_id == contact.id)).all():
+        session.delete(device)  # the family phone stops receiving alerts
     session.delete(contact)
     session.commit()
     return {"ok": True}
