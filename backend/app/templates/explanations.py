@@ -126,6 +126,8 @@ ALERTS = {
         "trip_reminder": "Your trip at {time}: the sea is now {verdict} for your boat. {extra}",
         "trip_reminder_unsafe": "Do not go. The planned hours are now UNSAFE: {reason}",
         "trip_reminder_ok": "Open Sea Safe and tap Start when you leave.",
+        "buddy_overdue": "Buddy boat alert: {name} ({boat}) has not come back. Due {time}. Last position: {link}. You may be the nearest boat. Call 1554 if you see trouble.",
+        "buddy_sos": "Buddy boat SOS: {name} ({boat}) needs help now. Position: {link}. Call the Coast Guard on 1554.",
     },
     "ml": {
         "overdue_contact": "Sea Safe: {name} തിരിച്ചെത്തിയിട്ടില്ല. മടങ്ങേണ്ട സമയം {time}. അവസാനം കണ്ടത് {seen}: {link}. കടൽ ഇപ്പോൾ: {level}, തിരമാല {waves} മീറ്റർ.",
@@ -137,6 +139,8 @@ ALERTS = {
         "sos": "SOS: {name} ({boat}) അപകടത്തിൽ. സ്ഥാനം: {link}. സമയം: {time}. Sea Safe അയച്ചത്.",
         "sos_last_known": "SOS: {name} ({boat}) അപകടത്തിൽ. ഇപ്പോൾ GPS ലഭ്യമല്ല. അവസാനം അറിഞ്ഞ സ്ഥാനം: {link}. സമയം: {time}. Sea Safe അയച്ചത്.",
         "sos_home": "SOS: {name} ({boat}) അപകടത്തിൽ. സ്ഥാനം അറിയില്ല. ഹാർബർ: {link}. സമയം: {time}. Sea Safe അയച്ചത്.",
+        "buddy_overdue": "കൂട്ടുവള്ളം മുന്നറിയിപ്പ്: {name} ({boat}) തിരിച്ചെത്തിയിട്ടില്ല. മടങ്ങേണ്ട സമയം {time}. അവസാന സ്ഥാനം: {link}. നിങ്ങളായിരിക്കാം ഏറ്റവും അടുത്ത വള്ളം. അപകടം കണ്ടാൽ 1554 വിളിക്കുക.",
+        "buddy_sos": "കൂട്ടുവള്ളം SOS: {name} ({boat}) അപകടത്തിൽ. സ്ഥാനം: {link}. കോസ്റ്റ് ഗാർഡിനെ 1554-ൽ വിളിക്കുക.",
         "morning_recheck": "രാത്രിയിൽ പ്രവചനം മാറി. ഇന്ന് നിങ്ങളുടെ വള്ളത്തിന് {verdict} (മുമ്പ് {old}). പുറപ്പെടും മുമ്പ് Sea Safe നോക്കുക.",
     },
 }

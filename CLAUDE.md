@@ -33,3 +33,11 @@ Product spec and feature priorities: [SEA-SAFE-PLAN.md](SEA-SAFE-PLAN.md). Read 
 - LLM calls go through `services/llm.py` (rotating Groq/Gemini key pool). Each call is stateless and carries its full context, so any key can serve it.
 - Voice assistant is English-only for now; Malayalam UI strings fall back to English where untranslated (`ml.ts` is `Partial<Strings>`).
 - Out of scope (do not build): market prices, maritime boundary alerts, IVR, gamification. (Community chat and events are now in scope: `services/social.py`.)
+
+## Added 13 Nov (differentiators)
+- **Drift search zone** (`services/drift.py`, pure): for overdue/emergency boats, current + 3% wind leeway from the last position give a centre and widening radius for now, +1, +3, +6 h. Drawn on the dashboard map. Settings under `drift` in `thresholds.json`.
+- **Harbour-mouth crossing** (`risk_engine.bar_hour/bar_range/bar_windows`): estimated breaking height at the bar from wave height, period and a falling tide. Returned as `harbour_mouth` in `/advisor/forecast`. It is shown beside the verdict and does not change it. Limits under `harbour_mouth` in `thresholds.json`.
+- **Sea now** (`advisor.sea_out`): wind direction, current, tide, charted depth (GEBCO via opentopodata, optional), head wind and current on the run home.
+- **Buddy boats** (`routers/buddies.py`): pair by phone number; buddies get `buddy_alert` on overdue, SOS and automatic SOS.
+- **Ask by SMS** (`routers/sms.py`): `POST /sms/inbound` (Twilio webhook) and `POST /sms/ask` (JSON, dashboard simulator). Template answers only.
+- Mobile look: sailcloth + boat-paint palette in `lib/theme.ts`, drawn icons and the verdict illustration in `components/art.tsx`. Use `Icon`, not emoji, in new UI.

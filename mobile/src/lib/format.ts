@@ -28,3 +28,18 @@ export function formatDay(isoDate: string): string {
 export function num(value: number | null | undefined, digits = 1): string {
   return value === null || value === undefined ? '–' : value.toFixed(digits).replace(/\.0$/, '');
 }
+
+/** Initial bearing in degrees from point 1 to point 2. */
+export function bearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const rad = Math.PI / 180;
+  const y = Math.sin((lon2 - lon1) * rad) * Math.cos(lat2 * rad);
+  const x =
+    Math.cos(lat1 * rad) * Math.sin(lat2 * rad) - Math.sin(lat1 * rad) * Math.cos(lat2 * rad) * Math.cos((lon2 - lon1) * rad);
+  return ((Math.atan2(y, x) / rad) + 360) % 360;
+}
+
+/** Wind (or current) component along a course. `fromDeg` is where the wind blows FROM: positive = head wind. */
+export function along(speed: number | null | undefined, fromDeg: number | null | undefined, course: number): number | null {
+  if (speed == null || fromDeg == null) return null;
+  return speed * Math.cos(((fromDeg - course) * Math.PI) / 180);
+}

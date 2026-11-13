@@ -1,16 +1,26 @@
+import { Platform } from 'react-native';
+
 import type { BoatType, Level, ReportType } from './types';
 
+/**
+ * Sea Safe looks like the things on a Kerala landing beach: sailcloth, boat paint and the
+ * storm-signal board at the harbour. Flat paint colours, dark ink, no gloss.
+ */
 export const colors = {
-  safe: '#1B998B',
-  caution: '#F4A261',
-  unsafe: '#E63946',
-  ink: '#0B2545',
-  inkSoft: '#3D5A80',
-  bg: '#EEF3F8',
-  card: '#FFFFFF',
-  line: '#C9D6E2',
+  // Signal colours. White text passes 4.5:1 on safe and unsafe; caution carries dark ink.
+  safe: '#0A7A55',
+  caution: '#F0AE12',
+  unsafe: '#C8281E',
+  ink: '#14212B',
+  inkSoft: '#4A5A66',
+  bg: '#F3EDE0', // sailcloth
+  card: '#FFFDF7',
+  line: '#D8CDB6',
   white: '#FFFFFF',
-  sea: '#13315C',
+  sea: '#123E7C', // hull blue: primary actions
+  seaDeep: '#0B2A57',
+  sand: '#E7DCC4',
+  rope: '#B08D57',
 };
 
 export const levelColor: Record<Level, string> = {
@@ -28,6 +38,14 @@ export const levelInk: Record<Level, string> = {
 
 /** Shape as well as colour, so the level reads without colour vision. */
 export const levelIcon: Record<Level, string> = { SAFE: '✔', CAUTION: '⚠', UNSAFE: '✖' };
+
+/**
+ * Display face: the condensed cut that ships with Android, set heavy, like painted
+ * lettering on a hull. Malayalam falls back to the system Malayalam face.
+ */
+export const display = Platform.select({ android: { fontFamily: 'sans-serif-condensed' }, default: {} }) as {
+  fontFamily?: string;
+};
 
 export const boatIcon: Record<BoatType, string> = {
   non_motorised: '🛶',

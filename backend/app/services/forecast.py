@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import math
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -14,13 +15,15 @@ log = logging.getLogger("seasafe.forecast")
 
 MARINE_URL = (
     "https://marine-api.open-meteo.com/v1/marine?latitude={lat}&longitude={lon}"
-    "&hourly=wave_height,wave_period,wind_wave_height,swell_wave_height&timezone=auto&forecast_days=7"
+    "&hourly=wave_height,wave_period,wind_wave_height,swell_wave_height,ocean_current_velocity,ocean_current_direction,sea_level_height_msl&timezone=auto&forecast_days=7"
 )
 WEATHER_URL = (
     "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
-    "&hourly=wind_speed_10m,wind_gusts_10m,precipitation,weather_code,is_day"
+    "&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation,weather_code,is_day"
     "&wind_speed_unit=kmh&timezone=auto&forecast_days=7"
 )
+# Water depth (GEBCO 2020 grid, about 450 m cells). Optional: the forecast works without it.
+DEPTH_URL = "https://api.opentopodata.org/v1/gebco2020?locations={lat},{lon}"
 CACHE_TTL_S = 30 * 60
 SCENARIOS = ("real", "calm", "rough", "storm", "worsening", "thunderstorm", "heavy_rain", "strong_wind", "high_swell", "cyclone")
 
@@ -51,6 +54,7 @@ SCENARIO_ROWS = {
 
 _cache: dict[tuple[float, float], dict] = {}  # key -> {"at": epoch, "data": forecast}
 _sea_points: dict[tuple[float, float], tuple[float, float]] = {}
+_depths: dict[tuple[float, float], Optional[float]] = {}
 _scenario = "real"
 _scenario_set_at = datetime.now(timezone.utc)
 
@@ -116,6 +120,22 @@ async def find_sea_point(client: httpx.AsyncClient, lat: float, lon: float) -> t
     raise ForecastUnavailable("no sea point with wave data near this location")
 
 
+async def water_depth(client: httpx.AsyncClient, lat: float, lon: float) -> Optional[float]:
+    """Charted depth in metres at a sea point (positive down), or None when it is not known."""
+    key = (round(lat, 3), round(lon, 3))
+    if key in _depths:
+        return _depths[key]
+    try:
+        resp = await client.get(DEPTH_URL.format(lat=lat, lon=lon), timeout=4)
+        resp.raise_for_status()
+        elevation = (resp.json().get("results") or [{}])[0].get("elevation")
+        depth = round(-float(elevation), 1) if elevation is not None and float(elevation) < 0 else None
+    except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError):
+        return None  # not cached: try again next time
+    _depths[key] = depth
+    return depth
+
+
 def _merge(marine: dict, weather: dict) -> tuple[list[dict], int]:
     offset = int(marine.get("utc_offset_seconds") or weather.get("utc_offset_seconds") or 0)
     tz = timezone(timedelta(seconds=offset))
@@ -141,6 +161,12 @@ def _merge(marine: dict, weather: dict) -> tuple[list[dict], int]:
                 "precipitation": pick(wh, "precipitation", j),
                 "weather_code": pick(wh, "weather_code", j),
                 "is_day": pick(wh, "is_day", j),
+                # For the drift search zone and the harbour-mouth estimate. Current direction is
+                # where the water flows TO; wind direction is where the wind comes FROM.
+                "current_speed": pick(mh, "ocean_current_velocity", i),
+                "current_dir": pick(mh, "ocean_current_direction", i),
+                "sea_level": pick(mh, "sea_level_height_msl", i),
+                "wind_dir": pick(wh, "wind_direction_10m", j),
             }
         )
     return rows, offset
@@ -152,6 +178,7 @@ async def _fetch(lat: float, lon: float) -> dict:
         # Wind at the sea point, not at the harbour: wind over land reads lower than at sea,
         # which would make the verdict too optimistic.
         weather = await _get_json(client, WEATHER_URL.format(lat=slat, lon=slon))
+        depth = await water_depth(client, slat, slon)
     rows, offset = _merge(marine, weather)
     if not rows:
         raise ForecastUnavailable("empty forecast")
@@ -162,6 +189,7 @@ async def _fetch(lat: float, lon: float) -> dict:
         "sea_lon": slon,
         "utc_offset_seconds": offset,
         "rows": rows,
+        "depth_m": depth,
         "fetched_at": datetime.now(timezone.utc),
         "stale": False,
         "synthetic": False,
@@ -191,6 +219,10 @@ def _synthetic(lat: float, lon: float) -> dict:
             "precipitation": 0.0,
             "weather_code": 1,
             "is_day": 1 if 6 <= (h % 24) < 18 else 0,
+            "current_speed": 1.2,
+            "current_dir": 330.0,
+            "sea_level": round(0.35 * math.sin(2 * math.pi * h / 12.42), 3),
+            "wind_dir": 290.0,
         }
         for h in range(7 * 24)
     ]
@@ -215,6 +247,10 @@ def apply_scenario(rows: list[dict], mode: str, now: datetime) -> list[dict]:
     for row in out:
         if mode in SCENARIO_ROWS:
             row.update(SCENARIO_ROWS[mode])
+            if row.get("current_speed") is None:
+                row.update({"current_speed": 1.2, "current_dir": 330.0})
+            if row.get("wind_dir") is None:
+                row["wind_dir"] = 290.0
         elif mode == "worsening":
             row.update(SCENARIO_ROWS["calm"])
             # `now` is when the scenario was switched on. Calm for the two hour slots

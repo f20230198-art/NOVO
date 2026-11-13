@@ -7,13 +7,13 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   :root {
-    --safe: #1B998B; --caution: #F4A261; --unsafe: #E63946;
-    --ink: #0B2545; --ink-soft: #3D5A80; --bg: #EEF3F8; --card: #fff; --line: #C9D6E2; --sea: #13315C;
+    --safe: #0A7A55; --caution: #F0AE12; --unsafe: #C8281E;
+    --ink: #14212B; --ink-soft: #4A5A66; --bg: #F3EDE0; --card: #FFFDF7; --line: #D8CDB6; --sea: #123E7C;
   }
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.45 system-ui, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); }
   header { background: var(--sea); color: #fff; padding: 12px 20px; display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: center; }
-  header h1 { font-size: 20px; margin: 0; font-weight: 800; }
+  header h1 { font-size: 26px; margin: 0; font-weight: 900; font-stretch: condensed; letter-spacing: .01em; }
   header .sub { opacity: .8; font-size: 13px; }
   .stats { display: flex; gap: 22px; margin-left: auto; }
   .stat b { display: block; font-size: 24px; line-height: 1.1; font-variant-numeric: tabular-nums; }
@@ -23,9 +23,15 @@
   #conn.down { background: var(--unsafe); }
   main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); gap: 16px; padding: 16px 20px; }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } .stats { margin-left: 0; } }
-  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
-  section h2 { font-size: 15px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); }
-  #map { height: 460px; border-radius: 8px; background: #cfe3f1; }
+  section { background: var(--card); border-top: 3px solid var(--ink); border-radius: 6px; padding: 14px 16px; min-width: 0; }
+  section h2 { font-size: 18px; margin: 0 0 10px; font-weight: 800; color: var(--ink); }
+  #map { height: 520px; border-radius: 4px; background: #cfe3f1; }
+  .zone-label { background: var(--unsafe); color: #fff; font-weight: 800; font-size: 12px; padding: 1px 6px; border-radius: 3px; border: 0; box-shadow: none; white-space: nowrap; }
+  .zone-label::before { display: none; }
+  .search { margin-top: 6px; padding: 8px 10px; background: #FBE4E1; border-radius: 4px; font-size: 14px; }
+  .search b { color: var(--unsafe); }
+  #smsReply { white-space: pre-wrap; background: var(--bg); border-radius: 4px; padding: 10px; min-height: 44px; margin-top: 8px; font-size: 15px; }
+  ::selection { background: var(--caution); color: var(--ink); }
   .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
   ul { list-style: none; margin: 0; padding: 0; }
   li { padding: 9px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
@@ -34,13 +40,14 @@
   .tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-right: 6px; white-space: nowrap; }
   .tag.SAFE { background: var(--safe); color: #fff; } .tag.CAUTION { background: var(--caution); color: var(--ink); }
   .tag.UNSAFE, .tag.overdue, .tag.emergency, .tag.sos, .tag.auto_sos { background: var(--unsafe); color: #fff; }
-  .tag.overdue_check, .tag.trip_reminder, .tag.extended, .tag.all_clear { background: #E3E9F0; color: var(--ink); }
+  .tag.overdue_check, .tag.trip_reminder, .tag.extended, .tag.all_clear, .tag.sms_reply { background: #E3E9F0; color: var(--ink); }
   .tag.hidden { background: #8A9BB0; color: #fff; }
   .tag.ok { background: var(--safe); color: #fff; } .tag.cooling { background: var(--caution); color: var(--ink); }
   li.auto { border-left: 5px solid var(--unsafe); padding-left: 10px; background: #FFF1F2; }
   li .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
   li .row button { width: auto; padding: 4px 10px; font-size: 12px; }
   .tag.simulated { background: #E3E9F0; color: var(--ink); } .tag.sms, .tag.telegram, .tag.push, .tag.message { background: var(--sea); color: #fff; }
+  .tag.buddy_alert { background: var(--unsafe); color: #fff; }
   .tag.head_back, .tag.morning_recheck, .tag.broadcast { background: var(--caution); color: var(--ink); }
   .tag.active { background: #E3E9F0; color: var(--ink); }
   .meta { color: var(--ink-soft); font-size: 13px; }
@@ -70,7 +77,7 @@
 <body>
 <header>
   <div>
-    <h1>🌊 Sea Safe · Co-op dashboard</h1>
+    <h1>Sea Safe · Co-op dashboard</h1>
     <div class="sub">Every boat that is out, who is overdue, and every alert sent.</div>
   </div>
   <span id="conn">connecting…</span>
@@ -94,6 +101,7 @@
         <span><i style="background:var(--unsafe);box-shadow:0 0 0 4px rgba(230,57,70,.35)"></i>Overdue or SOS (pulsing)</span>
         <span>⚠️ Hazard report</span>
         <span>◯ Official warning area</span>
+        <span><i style="background:transparent;border:2px dashed var(--unsafe)"></i>Search zone: where a boat adrift is now, and in 1, 3 and 6 hours</span>
       </div>
     </section>
     <section>
@@ -118,6 +126,16 @@
     <section>
       <h2>Live alert feed</h2>
       <ul id="alerts" class="feed"><li class="empty">Loading…</li></ul>
+    </section>
+    <section>
+      <h2>Ask by SMS · simulator</h2>
+      <div class="meta">What a fisher with a basic phone, or no mobile data, gets back. Try: KOCHI MOTOR TOMORROW</div>
+      <form id="smsForm" style="margin-top:8px">
+        <div><label for="smsFrom">From (phone, optional)</label><input id="smsFrom" placeholder="+91 98470 00001"></div>
+        <div><label for="smsBody">Message</label><input id="smsBody" required maxlength="160" value="MUTHALAPOZHI SMALL TOMORROW"></div>
+        <div class="wide"><button type="submit">Send</button></div>
+      </form>
+      <div id="smsReply" role="status" class="meta">The reply appears here.</div>
     </section>
     <section>
       <h2>Post an official warning</h2>
@@ -165,7 +183,7 @@
 (function () {
   'use strict';
   var ICONS = { rough_sea: '🌊', storm: '⛈️', harbour_mouth_rough: '⚓', strong_current: '🌀', debris: '🪵', oil_spill: '🛢️', boat_in_trouble: '🆘', no_fish: '🐟' };
-  var LEVEL_COLOR = { SAFE: '#1B998B', CAUTION: '#F4A261', UNSAFE: '#E63946' };
+  var LEVEL_COLOR = { SAFE: '#0A7A55', CAUTION: '#F0AE12', UNSAFE: '#C8281E' };
   var $ = function (id) { return document.getElementById(id); };
 
   // All text goes through textContent: names, notes and messages come from users.
@@ -182,6 +200,7 @@
   }
   function clock(iso) { return iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '–'; }
   function label(type) { return String(type || '').replace(/_/g, ' '); }
+  function compass(deg) { return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.floor(((deg % 360) + 22.5) / 45) % 8]; }
 
   var map = null, layer = null, fitted = false;
   if (window.L) {
@@ -197,7 +216,7 @@
     layer.clearLayers();
     var points = [];
     warnings.forEach(function (w) {
-      L.circle([w.center_lat, w.center_lon], { radius: w.radius_km * 1000, color: '#E63946', weight: 2, fillOpacity: 0.08 })
+      L.circle([w.center_lat, w.center_lon], { radius: w.radius_km * 1000, color: '#C8281E', weight: 2, fillOpacity: 0.08 })
         .bindPopup(el('div', '', 'Official warning: ' + w.title)).addTo(layer);
     });
     reports.forEach(function (r) {
@@ -218,6 +237,20 @@
       if (t.wave_height != null) popup.appendChild(el('div', '', 'Waves ' + t.wave_height + ' m, wind ' + t.wind_speed + ' km/h'));
       L.marker([t.lat, t.lon], { icon: icon, zIndexOffset: alarm ? 1000 : 500 }).bindPopup(popup).addTo(layer);
       points.push([t.lat, t.lon]);
+      if (t.drift && t.drift.points && t.drift.points.length) {
+        // Search zone: a widening circle for now and each hour ahead, joined by the drift track.
+        var track = [[t.lat, t.lon]];
+        t.drift.points.forEach(function (p, i) {
+          var now = p.hours_ahead === 0;
+          L.circle([p.lat, p.lon], {
+            radius: p.radius_km * 1000, color: '#C8281E', weight: now ? 3 : 1.5, dashArray: now ? null : '6 6',
+            fillColor: '#C8281E', fillOpacity: now ? 0.16 : 0.05
+          }).bindTooltip(now ? 'now' : '+' + p.hours_ahead + ' h', { permanent: true, direction: 'top', className: 'zone-label', offset: [0, -4] }).addTo(layer);
+          track.push([p.lat, p.lon]);
+          points.push([p.lat, p.lon]);
+        });
+        L.polyline(track, { color: '#C8281E', weight: 2.5 }).addTo(layer);
+      }
     });
     if (!fitted && points.length) { map.fitBounds(L.latLngBounds(points).pad(0.4), { maxZoom: 10 }); fitted = true; }
   }
@@ -229,6 +262,22 @@
     li.appendChild(el('span', '', ' · ' + label(t.boat_type) + ' · ' + (t.home_name || '')));
     li.appendChild(el('div', 'meta', 'Due ' + clock(t.planned_return) + ' · ' + t.minutes_late + ' min late · last seen ' + clock(t.last_ping_at) + ' · ' + (t.phone || 'no phone')));
     li.appendChild(el('div', 'meta', 'Furthest out ' + (t.max_offshore_km || 0) + ' km · automatic SOS ' + (t.status === 'emergency' ? 'sent / SOS active' : 'at ' + clock(t.auto_sos_at))));
+    if (t.drift && t.drift.points && t.drift.points.length) {
+      var nowP = t.drift.points[0], lastP = t.drift.points[t.drift.points.length - 1];
+      var box = el('div', 'search');
+      box.appendChild(el('b', '', 'Search zone now: '));
+      box.appendChild(el('span', '', nowP.lat.toFixed(4) + ', ' + nowP.lon.toFixed(4) + ' ± ' + nowP.radius_km + ' km'));
+      var how = t.drift.basis === 'none' ? 'No current or wind data: the circle only widens with time.'
+        : 'Adrift ' + t.drift.hours_adrift + ' h since the last signal, carried ' + nowP.drifted_km + ' km'
+          + (t.drift.heading_deg != null ? ' towards ' + compass(t.drift.heading_deg) + ' at ' + t.drift.speed_kmh + ' km/h' : '')
+          + ' (' + t.drift.basis.replace('+', ' + ') + '). In ' + lastP.hours_ahead + ' h: ± ' + lastP.radius_km + ' km.';
+      box.appendChild(el('div', 'meta', how));
+      var z = el('a', 'meta', 'Open search centre in Google Maps');
+      z.href = 'https://maps.google.com/?q=' + encodeURIComponent(nowP.lat + ',' + nowP.lon);
+      z.target = '_blank'; z.rel = 'noopener';
+      box.appendChild(z);
+      li.appendChild(box);
+    }
     var a = el('a', 'meta', 'Open last position in Google Maps');
     a.href = 'https://maps.google.com/?q=' + encodeURIComponent(t.lat + ',' + t.lon);
     a.target = '_blank'; a.rel = 'noopener';
@@ -370,6 +419,14 @@
     }, { 'X-Admin-Key': $('wKey').value || adminKey })
       .then(function () { $('formMsg').textContent = 'Warning posted. Every boat in the area now shows UNSAFE.'; $('wTitle').value = ''; $('wMsg').value = ''; return refresh(); })
       .catch(function (err) { $('formMsg').textContent = 'Could not post: ' + err.message; });
+  });
+
+  $('smsForm').addEventListener('submit', function (event) {
+    event.preventDefault();
+    $('smsReply').textContent = 'Sending…';
+    postJson('/sms/ask', { sender: $('smsFrom').value.trim(), body: $('smsBody').value })
+      .then(function (r) { $('smsReply').textContent = r.reply; return refresh(); })
+      .catch(function (err) { $('smsReply').textContent = 'Could not send: ' + err.message; });
   });
 
   $('scenario').addEventListener('change', function () {

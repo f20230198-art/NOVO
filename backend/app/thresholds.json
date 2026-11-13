@@ -1,21 +1,91 @@
 {
-  "non_motorised": {"wave_caution": 1.0, "wave_unsafe": 1.5, "wind_caution": 20, "wind_unsafe": 30, "gust_unsafe": 40},
-  "motorised":     {"wave_caution": 1.5, "wave_unsafe": 2.5, "wind_caution": 30, "wind_unsafe": 40, "gust_unsafe": 55},
-  "mechanised":    {"wave_caution": 2.5, "wave_unsafe": 3.5, "wind_caution": 40, "wind_unsafe": 50, "gust_unsafe": 70},
+  "non_motorised": {
+    "wave_caution": 1.0,
+    "wave_unsafe": 1.5,
+    "wind_caution": 20,
+    "wind_unsafe": 30,
+    "gust_unsafe": 40
+  },
+  "motorised": {
+    "wave_caution": 1.5,
+    "wave_unsafe": 2.5,
+    "wind_caution": 30,
+    "wind_unsafe": 40,
+    "gust_unsafe": 55
+  },
+  "mechanised": {
+    "wave_caution": 2.5,
+    "wave_unsafe": 3.5,
+    "wind_caution": 40,
+    "wind_unsafe": 50,
+    "gust_unsafe": 70
+  },
   "steep_wave_period_s": 6,
   "heavy_rain_mm": 7.5,
-  "thunderstorm_codes": [95, 96, 99],
+  "thunderstorm_codes": [
+    95,
+    96,
+    99
+  ],
   "report_radius_km": 10,
   "report_min_confirmations": 1,
   "stale_forecast_minutes": 180,
-  "risk_report_types": ["rough_sea", "storm", "harbour_mouth_rough", "strong_current", "debris", "oil_spill", "boat_in_trouble"],
+  "risk_report_types": [
+    "rough_sea",
+    "storm",
+    "harbour_mouth_rough",
+    "strong_current",
+    "debris",
+    "oil_spill",
+    "boat_in_trouble"
+  ],
   "warning_overrides": true,
   "escalation": {
     "offshore_km": 2.0,
     "signal_silent_minutes": 60,
-    "auto_sos_minutes_after_overdue": {"non_motorised": 90, "motorised": 120, "mechanised": 180},
+    "auto_sos_minutes_after_overdue": {
+      "non_motorised": 90,
+      "motorised": 120,
+      "mechanised": 180
+    },
     "trip_reminder_minutes_before": 60,
     "_note": "Auto-SOS fires only when the trip is overdue (return time + grace), a further auto_sos_minutes_after_overdue has passed, the boat went more than offshore_km out, and the phone has either been silent for signal_silent_minutes or is still reporting from offshore. Adding time ('More time') moves every step back."
+  },
+  "harbour_mouth": {
+    "limits": {
+      "non_motorised": {
+        "caution": 1.0,
+        "unsafe": 1.5
+      },
+      "motorised": {
+        "caution": 1.4,
+        "unsafe": 2.0
+      },
+      "mechanised": {
+        "caution": 2.0,
+        "unsafe": 2.8
+      }
+    },
+    "period_ref_s": 6,
+    "period_gain_per_s": 0.08,
+    "max_period_gain": 1.7,
+    "ebb_m_per_hour": 0.05,
+    "ebb_gain": 1.2,
+    "_note": "Estimated breaking height at the bar = significant wave height x period gain (long swell stands up in shallow water) x ebb gain (a falling tide runs out against the swell). An estimate from the offshore forecast, not a measurement at the harbour mouth."
+  },
+  "drift": {
+    "leeway_factor": 0.03,
+    "base_radius_km": 0.5,
+    "radius_km_per_hour": 0.35,
+    "radius_per_km_drifted": 0.3,
+    "hours_ahead": [
+      0,
+      1,
+      3,
+      6
+    ],
+    "max_hours": 72,
+    "_note": "Drift of a boat without power = ocean current + leeway_factor x wind. The search radius grows with time and with distance drifted."
   },
   "_sources": "Starting values based on the Beaufort scale and the WMO sea-state table; to be validated with fishers."
 }

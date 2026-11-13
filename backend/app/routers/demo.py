@@ -14,7 +14,7 @@ from sqlmodel import Session, select
 
 from ..config import settings
 from ..db import get_session, utcnow
-from ..models import (Alert, AssistantMessage, ChatMessage, CommunityEvent, Contact, FamilyDevice, Report, ScheduledTrip,
+from ..models import (Alert, AssistantMessage, Buddy, ChatMessage, CommunityEvent, Contact, FamilyDevice, Report, ScheduledTrip,
                       Trip, User, Warning)
 from ..services import community, escalation, forecast, monitor, social
 from ..services.family import new_link_code
@@ -181,7 +181,7 @@ def _clear_seed(session: Session) -> None:
         if contact_ids:
             for d in session.exec(select(FamilyDevice).where(FamilyDevice.contact_id.in_(contact_ids))).all():  # type: ignore[union-attr]
                 session.delete(d)
-    for model in (Contact, Trip, Alert, Report, ScheduledTrip, AssistantMessage, ChatMessage):
+    for model in (Contact, Trip, Alert, Report, ScheduledTrip, AssistantMessage, ChatMessage, Buddy):
         if ids:
             for row in session.exec(select(model).where(model.user_id.in_(ids))).all():  # type: ignore[union-attr]
                 session.delete(row)
@@ -218,6 +218,10 @@ def seed(session: Session = Depends(get_session)):
         users.append(user)
     session.commit()
     biju, selvan, antony, rashid = users
+    # Buddy boats: Selvan is paired with Biju and with Antony (who is about to go overdue).
+    for a, c in ((biju, selvan), (selvan, biju), (antony, selvan), (selvan, antony)):
+        session.add(Buddy(user_id=a.id, buddy_id=c.id))
+    session.commit()
 
     # Reports. The one beside Muthalapozhi is a no-fish report, which never changes the risk,
     # so the demo fisher starts from a clean slate before the live harbour-mouth report.

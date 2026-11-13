@@ -57,7 +57,56 @@ export type HourRisk = {
   wave_period: number | null;
   wind_speed: number | null;
   wind_gust: number | null;
+  wind_from?: string | null;
+  wind_from_deg?: number | null;
+  current_speed?: number | null;
+  current_to?: string | null;
+  current_to_deg?: number | null;
+  tide_m?: number | null;
   reasons: Reason[];
+};
+
+export type SeaState = {
+  wind_speed: number | null;
+  wind_gust: number | null;
+  wind_from_deg: number | null;
+  wind_from: string | null;
+  current_speed: number | null;
+  current_to_deg: number | null;
+  current_to: string | null;
+  tide_m: number | null;
+  tide_state: 'rising' | 'falling' | 'slack' | null;
+  depth_m: number | null;
+  wave_height: number | null;
+  wave_period: number | null;
+  swell_height: number | null;
+  home_course: string | null;
+  head_wind_home: number | null;
+  current_against_home: number | null;
+};
+
+export type HarbourMouth = {
+  level: Level;
+  breaker_m: number | null;
+  ebb: boolean;
+  long_swell: boolean;
+  closes_at: string | null;
+  closes_label: string | null;
+  days: { day_index: number; date: string; worst_level: Level; windows: { start: string; end: string; hours: number; start_label: string; end_label: string }[] }[];
+  hourly: { time: string; day_index: number; hour: number; level: Level; breaker_m: number | null; ebb: boolean; past: boolean }[];
+};
+
+export type Buddy = {
+  id: number;
+  name: string;
+  boat_type: BoatType;
+  home_name: string;
+  status: 'ashore' | 'active' | 'overdue' | 'emergency';
+  planned_return: string | null;
+  last_ping_at: string | null;
+  lat: number | null;
+  lon: number | null;
+  distance_km: number | null;
 };
 
 export type OfficialWarning = {
@@ -96,6 +145,8 @@ export type Forecast = {
   days: DaySummary[];
   hourly: HourRisk[];
   current: HourRisk | null;
+  harbour_mouth?: HarbourMouth;
+  sea?: SeaState;
   best_days: { date: string; safe_daylight_hours: number; verdict: Level }[];
   warnings: OfficialWarning[];
   reports_nearby: Report[];

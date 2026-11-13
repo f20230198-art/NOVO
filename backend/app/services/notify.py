@@ -139,6 +139,23 @@ async def send_to_contacts(session: Session, user: User, message: str, kind: str
     return alerts
 
 
+async def send_to_buddies(session: Session, user: User, key: str, trip_id: Optional[int] = None, **fields) -> list[Alert]:
+    """Tell every buddy boat, each in their own language. `key` is buddy_overdue or buddy_sos."""
+    from ..models import Buddy  # local import: models imports nothing from here, this keeps the top tidy
+    from ..templates import explanations as tx
+
+    alerts: list[Alert] = []
+    for link in session.exec(select(Buddy).where(Buddy.user_id == user.id)).all():
+        buddy = session.get(User, link.buddy_id)
+        if buddy is None:
+            continue
+        lang = tx.lang_of(buddy.language)
+        message = tx.alert_text(key, lang, name=user.name,
+                                boat=tx.BOAT_WORD[lang].get(user.boat_type, user.boat_type), **fields)
+        alerts += await send_to_fisher(session, buddy, message, "buddy_alert", trip_id=trip_id)
+    return alerts
+
+
 def alert_out(alert: Alert) -> dict:
     from ..db import iso_utc
 

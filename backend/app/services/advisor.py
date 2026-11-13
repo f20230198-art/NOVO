@@ -18,7 +18,7 @@ from sqlmodel import Session
 from ..config import settings
 from ..templates import explanations as tx
 from ..thresholds import THRESHOLDS
-from . import community, forecast, llm, risk_engine
+from . import community, drift, forecast, llm, risk_engine
 from .risk_engine import HourRisk
 
 log = logging.getLogger("seasafe.advisor")
@@ -197,10 +197,99 @@ def _hourly_out(ctx: dict, language: str) -> list[dict]:
                 "wave_period": row.get("wave_period"),
                 "wind_speed": row.get("wind_speed"),
                 "wind_gust": row.get("wind_gust"),
+                "wind_from": drift.compass(row.get("wind_dir")),
+                "wind_from_deg": row.get("wind_dir"),
+                "current_to_deg": row.get("current_dir"),
+                "current_speed": row.get("current_speed"),
+                "current_to": drift.compass(row.get("current_dir")),
+                "tide_m": row.get("sea_level"),
                 "reasons": [_reason_out(r, language) for r in h.reasons],
             }
         )
     return out
+
+
+def sea_out(ctx: dict) -> dict:
+    """Wind, current, tide and depth for the hour in progress, and what they mean for the run
+    home: the head wind and the current against a boat steering from the sea point back to
+    the harbour. Information only; it does not change the verdict."""
+    fc, now = ctx["fc"], ctx["now"]
+    ordered = sorted(ctx["rows"], key=lambda r: r["time"])
+    i = next((k for k, r in enumerate(ordered) if r["time"] <= now < r["time"] + timedelta(hours=1)), None)
+    row = ordered[i] if i is not None else {}
+    nxt = ordered[i + 1] if i is not None and i + 1 < len(ordered) else {}
+    course = None
+    if risk_engine.haversine_km(fc["sea_lat"], fc["sea_lon"], ctx["lat"], ctx["lon"]) > 0.5:
+        course = drift.bearing(fc["sea_lat"], fc["sea_lon"], ctx["lat"], ctx["lon"])
+    tide_state = None
+    if row.get("sea_level") is not None and nxt.get("sea_level") is not None:
+        change = nxt["sea_level"] - row["sea_level"]
+        tide_state = "rising" if change > 0.02 else "falling" if change < -0.02 else "slack"
+    return {
+        "wind_speed": row.get("wind_speed"),
+        "wind_gust": row.get("wind_gust"),
+        "wind_from_deg": row.get("wind_dir"),
+        "wind_from": drift.compass(row.get("wind_dir")),
+        "current_speed": row.get("current_speed"),
+        "current_to_deg": row.get("current_dir"),
+        "current_to": drift.compass(row.get("current_dir")),
+        "tide_m": row.get("sea_level"),
+        "tide_state": tide_state,
+        "depth_m": fc.get("depth_m"),
+        "wave_height": row.get("wave_height"),
+        "wave_period": row.get("wave_period"),
+        "swell_height": row.get("swell_wave_height"),
+        # The run home, from the sea point to the harbour.
+        "home_course_deg": round(course) if course is not None else None,
+        "home_course": drift.compass(course),
+        "head_wind_home": drift.head_wind(row.get("wind_speed"), row.get("wind_dir"), course),
+        "current_against_home": drift.against_current(row.get("current_speed"), row.get("current_dir"), course),
+    }
+
+
+def harbour_mouth_out(ctx: dict, language: str) -> dict:
+    """Harbour-mouth crossing estimate for the home screen: level now, hourly strip, and the
+    open crossing windows for each day. Shown beside the verdict; it never changes it."""
+    bar = risk_engine.bar_range(ctx["rows"], ctx["boat"], THRESHOLDS)
+    now = ctx["now"]
+    current = next((b for b in bar if b["time"] <= now < b["time"] + timedelta(hours=1)), None)
+    days = []
+    for i, d in enumerate(ctx["dates"]):
+        windows = risk_engine.bar_windows(bar, d, now)
+        todays = [b for b in bar if b["time"].date() == d and b["time"] + timedelta(hours=1) > now and 3 <= b["time"].hour < 19]
+        worst = risk_engine.max_level(risk_engine.SAFE, *[b["level"] for b in todays]) if todays else risk_engine.CAUTION
+        days.append({
+            "day_index": i,
+            "date": d.isoformat(),
+            "worst_level": worst,
+            "windows": [
+                {"start": w["start"].isoformat(), "end": w["end"].isoformat(), "hours": w["hours"],
+                 "start_label": tx.fmt_time(w["start"], language), "end_label": tx.fmt_time(w["end"], language)}
+                for w in windows
+            ],
+        })
+    # When the bar next stops being SAFE to cross, so the fisher knows when to be back inside.
+    closes = None
+    if current and current["level"] == risk_engine.SAFE:
+        for b in bar:
+            if b["time"] > now and b["level"] != risk_engine.SAFE:
+                closes = b["time"]
+                break
+    return {
+        "level": current["level"] if current else risk_engine.CAUTION,
+        "breaker_m": current["breaker_m"] if current else None,
+        "ebb": bool(current and current["ebb"]),
+        "long_swell": bool(current and current["long_swell"]),
+        "closes_at": closes.isoformat() if closes else None,
+        "closes_label": tx.fmt_time(closes, language) if closes else None,
+        "days": days,
+        "hourly": [
+            {"time": b["time"].isoformat(), "day_index": ctx["dates"].index(b["time"].date()), "hour": b["time"].hour,
+             "level": b["level"], "breaker_m": b["breaker_m"], "ebb": b["ebb"],
+             "past": b["time"] + timedelta(hours=1) <= now}
+            for b in bar
+        ],
+    }
 
 
 def current_conditions(ctx: dict, language: str = "en") -> Optional[dict]:
@@ -238,6 +327,8 @@ def forecast_payload(ctx: dict, language: str, session: Session) -> dict:
         "days": [_day_out(ctx, i, language) for i in range(len(ctx["days"]))],
         "hourly": _hourly_out(ctx, language),
         "current": current_conditions(ctx, language),
+        "harbour_mouth": harbour_mouth_out(ctx, language),
+        "sea": sea_out(ctx),
         "best_days": [
             {"date": b["date"].isoformat(), "safe_daylight_hours": b["safe_daylight_hours"], "verdict": b["verdict"]}
             for b in best

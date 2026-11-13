@@ -3,6 +3,7 @@ import type {
   AssistantReply,
   AssistantTurn,
   BoatType,
+  Buddy,
   ChatMessage,
   CommunityEvent,
   Contact,
@@ -135,6 +136,10 @@ export const api = {
     request<Trip>(`/trips/${id}/extend`, { method: 'POST', body: { minutes } }),
   sos: (lat: number, lon: number, fix: 'gps' | 'last_known' | 'home' = 'gps') =>
     request<unknown>('/trips/sos', { method: 'POST', body: { lat, lon, fix }, timeoutMs: 8000 }),
+
+  buddies: () => request<Buddy[]>('/buddies'),
+  addBuddy: (phone: string) => request<Buddy>('/buddies', { method: 'POST', body: { phone } }),
+  removeBuddy: (id: number) => request<{ ok: boolean }>(`/buddies/${id}`, { method: 'DELETE' }),
 
   reports: (lat: number, lon: number, radiusKm = 25) =>
     request<Report[]>(`/reports${query({ lat, lon, radius_km: radiusKm })}`),

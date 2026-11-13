@@ -1,16 +1,21 @@
 import { useRouter } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 import React, { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { Icon, type IconName } from '../../components/art';
 import { SimulationModal } from '../../components/SimulationModal';
 import { SosButton } from '../../components/SosButton';
 import { useApp } from '../../lib/store';
 import { colors } from '../../lib/theme';
 
-function icon(glyph: string) {
-  return ({ focused }: { focused: boolean }) => <Text style={[styles.icon, { opacity: focused ? 1 : 0.55 }]}>{glyph}</Text>;
+function icon(name: IconName) {
+  return ({ focused }: { focused: boolean }) => (
+    <View style={[styles.icon, focused && styles.iconOn]}>
+      <Icon name={name} size={24} color={focused ? colors.white : colors.inkSoft} weight={focused ? 2.6 : 2.2} />
+    </View>
+  );
 }
 
 export default function TabsLayout() {
@@ -25,7 +30,7 @@ export default function TabsLayout() {
 
   if (!profile || family) return <View style={styles.flex} />;
 
-  const barHeight = 66 + insets.bottom;
+  const barHeight = 74 + insets.bottom;
   return (
     <View style={styles.flex}>
       <Tabs
@@ -33,16 +38,19 @@ export default function TabsLayout() {
           headerShown: false,
           tabBarActiveTintColor: colors.ink,
           tabBarInactiveTintColor: colors.inkSoft,
-          tabBarStyle: { height: barHeight, paddingBottom: insets.bottom + 6, paddingTop: 6 },
-          tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
+          tabBarStyle: {
+            height: barHeight, paddingBottom: insets.bottom + 6, paddingTop: 8,
+            backgroundColor: colors.card, borderTopWidth: 3, borderTopColor: colors.ink, elevation: 0,
+          },
+          tabBarLabelStyle: { fontSize: 12, fontWeight: '800', marginTop: 4 },
         }}
       >
-        <Tabs.Screen name="index" options={{ title: t('tabHome'), tabBarIcon: icon('🏠') }} />
-        <Tabs.Screen name="assistant" options={{ title: t('tabAssistant'), tabBarIcon: icon('🎙') }} />
-        <Tabs.Screen name="trip" options={{ title: t('tabTrip'), tabBarIcon: icon('⛵') }} />
-        <Tabs.Screen name="community" options={{ title: t('tabCommunity'), tabBarIcon: icon('👥') }} />
-        <Tabs.Screen name="watch" options={{ title: t('tabWatch'), tabBarIcon: icon('⚠️') }} />
-        <Tabs.Screen name="profile" options={{ title: t('tabProfile'), tabBarIcon: icon('👤') }} />
+        <Tabs.Screen name="index" options={{ title: t('tabHome'), tabBarIcon: icon('boat') }} />
+        <Tabs.Screen name="assistant" options={{ title: t('tabAssistant'), tabBarIcon: icon('mic') }} />
+        <Tabs.Screen name="trip" options={{ title: t('tabTrip'), tabBarIcon: icon('sail') }} />
+        <Tabs.Screen name="community" options={{ title: t('tabCommunity'), tabBarIcon: icon('people') }} />
+        <Tabs.Screen name="watch" options={{ title: t('tabWatch'), tabBarIcon: icon('flag') }} />
+        <Tabs.Screen name="profile" options={{ title: t('tabProfile'), tabBarIcon: icon('person') }} />
       </Tabs>
       {/* SOS floats above every tab. */}
       <SosButton bottom={barHeight + 12} />
@@ -54,5 +62,6 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
-  icon: { fontSize: 24 },
+  icon: { width: 52, height: 30, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+  iconOn: { backgroundColor: colors.sea },
 });

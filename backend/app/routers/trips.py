@@ -166,6 +166,7 @@ async def _raise_sos(trip: Trip, user: User, lat: float, lon: float, session: Se
         link=_maps_link(lat, lon), time=tx.fmt_time(local, user.language),
     )
     alerts = await notify.send_to_contacts(session, user, message, "sos", trip_id=trip.id)
+    alerts += await notify.send_to_buddies(session, user, "buddy_sos", trip_id=trip.id, link=_maps_link(lat, lon))
     session.refresh(trip)
     return {"trip": trip_out(trip, session), "alerts": [notify.alert_out(a) for a in alerts]}
 

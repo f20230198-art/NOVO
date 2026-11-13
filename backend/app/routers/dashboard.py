@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
-from ..db import get_session, iso_utc, utcnow
+from ..db import as_utc, get_session, iso_utc, utcnow
 from ..deps import require_admin
 from ..models import ChatMessage, CommunityEvent, Trip, User
 from ..services import advisor as advisor_service
-from ..services import escalation, social
+from ..services import drift, escalation, social
+from ..thresholds import THRESHOLDS
 from ..services.monitor import trip_position
 
 router = APIRouter(tags=["dashboard"])
@@ -40,12 +41,16 @@ async def dashboard_trips(session: Session = Depends(get_session)):
         if user is None:
             continue
         lat, lon = trip_position(trip)
-        level, waves, wind = None, None, None
+        level, waves, wind, zone = None, None, None, None
         try:
             ctx = await advisor_service.compute(session, trip.start_lat, trip.start_lon, user.boat_type, days=1)
             current = advisor_service.current_conditions(ctx)
             if current:
                 level, waves, wind = current["level"], current["wave_height"], current["wind_speed"]
+            # Where to search: only for boats that are overdue or in an emergency.
+            if trip.status in ("overdue", "emergency"):
+                zone = drift.predict(lat, lon, as_utc(trip.last_ping_at or trip.started_at), ctx["now"],
+                                     ctx["fc"]["rows"], THRESHOLDS.get("drift", {}))
         except Exception as exc:
             log.warning("dashboard: no sea state for trip %s: %s", trip.id, exc)
         out.append(
@@ -57,6 +62,7 @@ async def dashboard_trips(session: Session = Depends(get_session)):
                 "minutes_late": max(0, int((utcnow() - trip.planned_return).total_seconds() // 60)),
                 "level": level, "wave_height": waves, "wind_speed": wind,
                 "max_offshore_km": round(trip.max_offshore_km or 0.0, 1),
+                "drift": zone,
                 "auto_sos_at": iso_utc(escalation.auto_sos_at(trip.planned_return, trip.grace_minutes, user.boat_type)),
             }
         )

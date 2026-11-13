@@ -3,13 +3,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { HourDetail, HourStrip, LevelPill, ReasonList, VerdictCard } from '../../components/forecast';
+import { Icon } from '../../components/art';
+import { HarbourMouthCard, HourDetail, HourStrip, LevelPill, ReasonList, SeaPanel, VerdictCard } from '../../components/forecast';
 import { Banner, BigButton, Card, Disclaimer, SectionTitle } from '../../components/ui';
 import { api } from '../../lib/api';
 import { formatClock, formatDay } from '../../lib/format';
 import { canSpeak, speak, startListening, stopSpeaking, voiceInputAvailable } from '../../lib/speech';
 import { loadJson, saveJson, useApp } from '../../lib/store';
-import { TOUCH, colors, levelColor, levelInk } from '../../lib/theme';
+import { TOUCH, colors, display, levelColor, levelInk } from '../../lib/theme';
 import type { Advice, Forecast, HourRisk } from '../../lib/types';
 
 const CACHE_KEY = 'seasafe.forecast';
@@ -201,11 +202,17 @@ export default function Home() {
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
         <Pressable onLongPress={() => setSimOpen(true)} delayLongPress={800}>
-          <Text style={styles.brand}>🌊 {t('appName')}</Text>
+          <View style={styles.brandRow}>
+            <Icon name="boat" size={28} color={colors.sea} weight={2.6} />
+            <Text style={[styles.brand, display]}>{t('appName')}</Text>
+          </View>
         </Pressable>
-        <Text style={styles.place} numberOfLines={1}>
-          📍 {profile.home_name}
-        </Text>
+        <View style={styles.placeRow}>
+          <Icon name="pin" size={18} color={colors.ink} />
+          <Text style={styles.place} numberOfLines={1}>
+            {profile.home_name}
+          </Text>
+        </View>
       </View>
       <ScrollView
         contentContainerStyle={styles.body}
@@ -237,6 +244,7 @@ export default function Home() {
           <VerdictCard
             day={today}
             title={t('today')}
+            place={profile.home_name}
             shortAnswer={advice && advice.day_index === 0 ? advice.short_answer : undefined}
           />
         ) : null}
@@ -249,8 +257,14 @@ export default function Home() {
           </Card>
         ) : null}
 
+        {forecast?.harbour_mouth ? (
+          <Card>
+            <HarbourMouthCard mouth={forecast.harbour_mouth} />
+          </Card>
+        ) : null}
+
         {/* Ask the Sea */}
-        <Card style={styles.askCard}>
+        <View style={styles.askCard}>
           <Pressable
             onPressIn={micDown}
             onPressOut={micUp}
@@ -259,11 +273,11 @@ export default function Home() {
             accessibilityLabel={t('holdToAsk')}
             style={[styles.mic, listening && styles.micOn, asking && styles.micBusy]}
           >
-            {asking ? <ActivityIndicator size="large" color={colors.white} /> : <Text style={styles.micIcon}>🎤</Text>}
+            {asking ? <ActivityIndicator size="large" color={colors.white} /> : <Icon name="mic" size={64} color={colors.white} weight={2} />}
           </Pressable>
           <Text style={styles.micLabel}>{asking ? t('thinking') : listening ? t('listening') : t('holdToAsk')}</Text>
           {!canUseVoice ? <Text style={styles.small}>{t('voiceUnavailable')}</Text> : null}
-          {voiceMissing ? <Text style={styles.small}>🔇 {t('voiceOutputMissing')}</Text> : null}
+          {voiceMissing ? <Text style={styles.small}>{t('voiceOutputMissing')}</Text> : null}
 
           <Text style={styles.small}>{t('typeQuestion')}</Text>
           <View style={styles.askRow}>
@@ -284,11 +298,11 @@ export default function Home() {
               accessibilityLabel={t('ask')}
               style={[styles.askButton, (asking || !question.trim()) && styles.askButtonOff]}
             >
-              <Text style={styles.askButtonText}>➤</Text>
+              <Icon name="send" size={26} color={colors.white} />
             </Pressable>
           </View>
-          {askError ? <Text style={styles.error}>⚠ {askError}</Text> : null}
-        </Card>
+          {askError ? <Text style={styles.error}>{askError}</Text> : null}
+        </View>
 
         {advice ? (
           <View style={[styles.answer, { borderColor: levelColor[advice.verdict] }]}>
@@ -300,9 +314,14 @@ export default function Home() {
               <Text style={styles.answerQuestion}>“{advice.question}”</Text>
               <Text style={styles.answerText}>{advice.answer}</Text>
               {advice.window ? (
-                <Text style={styles.answerWindow}>
-                  🕓 {advice.window.start_label} – {advice.window.end_label}   ↩ {advice.window.return_by_label}
-                </Text>
+                <View style={styles.answerWindowRow}>
+                  <Icon name="clock" size={20} color={colors.ink} />
+                  <Text style={styles.answerWindow}>
+                    {advice.window.start_label} – {advice.window.end_label}
+                  </Text>
+                  <Icon name="back" size={20} color={colors.ink} />
+                  <Text style={styles.answerWindow}>{advice.window.return_by_label}</Text>
+                </View>
               ) : null}
               <Text style={styles.small}>
                 {t(`confidence_${advice.confidence}`)} · {advice.source === 'ai' ? t('sourceAi') : t('sourceTemplate')}
@@ -339,12 +358,18 @@ export default function Home() {
           accessibilityRole="button"
           style={[styles.hazardChip, hazards > 0 && styles.hazardChipOn]}
         >
-          <Text style={styles.hazardText}>
-            {hazards > 0 ? '⚠️ ' : '✔ '}
+          <Icon name={hazards > 0 ? 'alert' : 'check'} size={26} color={colors.ink} weight={2.6} />
+          <Text style={[styles.hazardText, styles.flex]}>
             {hazards === 0 ? t('noHazards') : hazards === 1 ? t('hazardNear') : t('hazardsNear', { n: hazards })}
           </Text>
-          <Text style={styles.hazardText}>›</Text>
+          <Icon name="chevRight" size={24} color={colors.ink} />
         </Pressable>
+
+        {forecast?.sea ? (
+          <Card>
+            <SeaPanel sea={forecast.sea} />
+          </Card>
+        ) : null}
 
         {forecast && forecast.best_days.length > 0 ? (
           <Card>
@@ -371,64 +396,67 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   screen: { flex: 1, backgroundColor: colors.bg },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8, gap: 12 },
-  brand: { fontSize: 24, fontWeight: '900', color: colors.sea },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  brand: { fontSize: 28, lineHeight: 34, fontWeight: '900', color: colors.sea, letterSpacing: 0.5 },
+  placeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 },
   place: { fontSize: 16, fontWeight: '700', color: colors.ink, flexShrink: 1 },
   body: { paddingHorizontal: 16, paddingBottom: 150, gap: 14 },
   spinner: { marginVertical: 40 },
-  askCard: { alignItems: 'center', gap: 8 },
+  askCard: { alignItems: 'center', gap: 10, paddingVertical: 8 },
   mic: {
-    width: 132,
-    height: 132,
-    borderRadius: 66,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
     backgroundColor: colors.sea,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 6,
-    borderColor: '#9DB4CC',
+    borderWidth: 5,
+    borderColor: colors.ink,
   },
-  micOn: { backgroundColor: colors.unsafe, borderColor: '#F5B5BA', transform: [{ scale: 1.08 }] },
+  micOn: { backgroundColor: colors.unsafe, transform: [{ scale: 1.08 }] },
   micBusy: { backgroundColor: colors.inkSoft },
   micIcon: { fontSize: 58 },
-  micLabel: { fontSize: 20, fontWeight: '800', color: colors.ink },
+  micLabel: { fontSize: 24, lineHeight: 31, fontWeight: '900', color: colors.ink },
   small: { fontSize: 14, color: colors.inkSoft, textAlign: 'center' },
   askRow: { flexDirection: 'row', gap: 8, alignSelf: 'stretch' },
   askInput: {
     flex: 1,
     minHeight: TOUCH,
     borderWidth: 2,
-    borderColor: colors.line,
-    borderRadius: 12,
+    borderColor: colors.ink,
+    borderRadius: 4,
     paddingHorizontal: 14,
     fontSize: 17,
     color: colors.ink,
     backgroundColor: colors.white,
   },
-  askButton: { width: TOUCH + 4, minHeight: TOUCH, borderRadius: 12, backgroundColor: colors.sea, alignItems: 'center', justifyContent: 'center' },
+  askButton: { width: TOUCH + 4, minHeight: TOUCH, borderRadius: 4, backgroundColor: colors.sea, alignItems: 'center', justifyContent: 'center' },
   askButtonOff: { opacity: 0.4 },
   askButtonText: { fontSize: 24, color: colors.white, fontWeight: '900' },
   error: { fontSize: 15, fontWeight: '700', color: colors.unsafe, textAlign: 'center' },
-  answer: { borderRadius: 18, borderWidth: 3, backgroundColor: colors.card, overflow: 'hidden' },
+  answer: { borderRadius: 6, borderWidth: 3, backgroundColor: colors.card, overflow: 'hidden' },
   answerHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10 },
   answerDay: { fontSize: 20, fontWeight: '900' },
   answerBody: { padding: 14, gap: 10 },
   answerQuestion: { fontSize: 15, color: colors.inkSoft, fontStyle: 'italic' },
   answerText: { fontSize: 19, lineHeight: 28, color: colors.ink, fontWeight: '600' },
-  answerWindow: { fontSize: 17, fontWeight: '800', color: colors.ink },
+  answerWindowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  answerWindow: { fontSize: 18, fontWeight: '800', color: colors.ink, marginRight: 10 },
   answerButtons: { flexDirection: 'row', gap: 8 },
   hazardChip: {
     minHeight: TOUCH + 4,
-    borderRadius: 14,
+    borderRadius: 6,
     backgroundColor: colors.card,
     borderWidth: 2,
-    borderColor: colors.line,
+    borderColor: colors.ink,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 12,
   },
-  hazardChipOn: { backgroundColor: '#FDE9D5', borderColor: colors.caution },
+  hazardChipOn: { backgroundColor: colors.caution },
   hazardText: { fontSize: 18, fontWeight: '800', color: colors.ink },
   bestRow: { flexDirection: 'row', gap: 8 },
-  bestDay: { flex: 1, borderWidth: 2, borderRadius: 12, padding: 8, alignItems: 'center', gap: 6 },
+  bestDay: { flex: 1, borderTopWidth: 6, paddingTop: 8, alignItems: 'flex-start', gap: 6 },
   bestDayName: { fontSize: 16, fontWeight: '800', color: colors.ink },
 });

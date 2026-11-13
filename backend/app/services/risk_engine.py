@@ -346,3 +346,71 @@ def trip_check(hours: list[HourRisk], now: datetime, planned_return: Optional[da
         return {"level": CAUTION, "reasons": [Reason("data_missing", None, "", None, CAUTION, "data_missing")], "hours": 0}
     level = max_level(*[h.level for h in span])
     return {"level": level, "reasons": main_reasons([h for h in span if h.level != SAFE]), "hours": len(span)}
+
+
+# ---------------------------------------------------------------------------
+# Harbour mouth (the bar). A separate estimate from the open-sea verdict: a swell that is
+# easy offshore stands up and breaks where it meets shallow water and an outgoing tide.
+# It never lowers anything; the caller shows it beside the verdict.
+
+def bar_hour(row: dict, boat: str, thresholds: dict, prev_row: Optional[dict] = None) -> dict:
+    """Crossing level for one hour: {time, level, breaker_m, ebb, long_swell}.
+
+    breaker_m = wave height x period gain x ebb gain. No wave data is CAUTION, never SAFE.
+    """
+    cfg = thresholds["harbour_mouth"]
+    limits = cfg["limits"][boat]
+    wave, period = row.get("wave_height"), row.get("wave_period")
+    if wave is None:
+        return {"time": row["time"], "level": CAUTION, "breaker_m": None, "ebb": False, "long_swell": False}
+    gain = 1.0
+    if period is not None:
+        gain = min(float(cfg["max_period_gain"]),
+                   1.0 + float(cfg["period_gain_per_s"]) * max(0.0, period - float(cfg["period_ref_s"])))
+    ebb = False
+    level_now, level_before = row.get("sea_level"), (prev_row or {}).get("sea_level")
+    if level_now is not None and level_before is not None:
+        ebb = (level_before - level_now) >= float(cfg["ebb_m_per_hour"])
+    breaker = wave * gain * (float(cfg["ebb_gain"]) if ebb else 1.0)
+    graded = _graded(breaker, limits["caution"], limits["unsafe"])
+    return {
+        "time": row["time"],
+        "level": graded[0] if graded else SAFE,
+        "breaker_m": round(breaker, 2),
+        "ebb": ebb,
+        "long_swell": gain >= 1.25,
+    }
+
+
+def bar_range(rows: list[dict], boat: str, thresholds: dict) -> list[dict]:
+    ordered = sorted(rows, key=lambda r: r["time"])
+    out = []
+    for i, row in enumerate(ordered):
+        prev = ordered[i - 1] if i > 0 and row["time"] - ordered[i - 1]["time"] == timedelta(hours=1) else None
+        out.append(bar_hour(row, boat, thresholds, prev))
+    return out
+
+
+def bar_windows(bar_hours: list[dict], day: date, now: Optional[datetime] = None,
+                earliest: int = 3, latest: int = 19) -> list[dict]:
+    """Continuous runs of SAFE crossing hours that day: [{start, end, hours}]."""
+    todays = sorted(
+        (h for h in bar_hours if h["time"].date() == day and earliest <= h["time"].hour < latest
+         and (now is None or h["time"] + timedelta(hours=1) > now)),
+        key=lambda h: h["time"],
+    )
+    runs: list[list[dict]] = []
+    for h in todays:
+        if h["level"] != SAFE:
+            continue
+        if runs and h["time"] - runs[-1][-1]["time"] == timedelta(hours=1):
+            runs[-1].append(h)
+        else:
+            runs.append([h])
+    out = []
+    for run in runs:
+        start = run[0]["time"]
+        if now is not None and now > start:
+            start = now
+        out.append({"start": start, "end": run[-1]["time"] + timedelta(hours=1), "hours": len(run)})
+    return out

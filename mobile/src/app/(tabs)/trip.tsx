@@ -3,9 +3,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, Vibration, View } from 'react-native';
 
 import { HourStrip, LevelPill, ReasonList } from '../../components/forecast';
+import { BuddyBoats } from '../../components/buddies';
 import { Banner, BigButton, Card, Screen, SectionTitle } from '../../components/ui';
 import { api } from '../../lib/api';
-import { formatClock, formatDuration, num } from '../../lib/format';
+import { along, bearing, formatClock, formatDuration, num } from '../../lib/format';
 import type { Translate } from '../../i18n';
 import { getWorkingPosition } from '../../lib/location';
 import { cancelNotification, notifyAt, notifyLocal } from '../../lib/notifications';
@@ -322,6 +323,9 @@ export default function TripScreen() {
           <Text style={styles.sub}>{t('graceNote', { n: 30 })}</Text>
         </Card>
         <BigButton label={busy ? t('starting') : t('startTrip')} icon="⛵" onPress={start} busy={busy} color={colors.safe} style={styles.tall} />
+        <Card>
+          <BuddyBoats />
+        </Card>
       </Screen>
     );
   }
@@ -343,12 +347,12 @@ export default function TripScreen() {
 
       <View style={[styles.status, { backgroundColor: statusColor }]}>
         <Text style={styles.statusText}>
-          {trip.status === 'active' && !late ? '⛵' : '🚨'} {statusText}
+          {statusText}
         </Text>
         <Text style={styles.statusLabel}>{late ? t('overdueBy') : t('timeLeft')}</Text>
         <Text style={styles.countdown}>{formatDuration(remaining)}</Text>
         <Text style={styles.statusLabel}>
-          ↩ {t('returnBy')} {formatClock(new Date(plannedMs))}
+          {t('returnBy')} {formatClock(new Date(plannedMs))}
         </Text>
         {trip.status === 'emergency' || (trip.status === 'overdue' && trip.contacts_alerted) ? (
           <Text style={styles.statusLabel}>{t('familyAlerted')}</Text>
@@ -398,10 +402,37 @@ export default function TripScreen() {
         {conditions ? (
           <>
             <Text style={styles.numbers}>
-              🌊 {num(conditions.wave_height)} m   💨 {num(conditions.wind_speed, 0)} km/h   {t('gusts')} {num(conditions.wind_gust, 0)} km/h
+              {t('waves')} {num(conditions.wave_height)} m · {t('wind')} {num(conditions.wind_speed, 0)} km/h
+              {conditions.wind_from ? ` ${t('from')} ${conditions.wind_from}` : ''} · {t('gusts')} {num(conditions.wind_gust, 0)}
+              {conditions.current_speed != null ? ` · ${t('current')} ${num(conditions.current_speed)} km/h${conditions.current_to ? ` → ${conditions.current_to}` : ''}` : ''}
             </Text>
+            {(() => {
+              // Head wind and current for the run home, from where the boat is now.
+              if (trip.last_lat == null || trip.last_lon == null) return null;
+              const farEnough = Math.abs(trip.last_lat - trip.start_lat) + Math.abs(trip.last_lon - trip.start_lon) > 0.004;
+              if (!farEnough) return null;
+              const course = bearing(trip.last_lat, trip.last_lon, trip.start_lat, trip.start_lon);
+              const head = along(conditions.wind_speed, conditions.wind_from_deg, course);
+              const withCurrent = along(conditions.current_speed, conditions.current_to_deg, course);
+              if (head == null && withCurrent == null) return null;
+              return (
+                <View style={styles.runHome}>
+                  <Text style={styles.runHomeTitle}>{t('runHome')}</Text>
+                  {head != null ? (
+                    <Text style={styles.runHomeText}>
+                      {head > 2 ? t('headWind', { n: num(Math.abs(head), 0) }) : head < -2 ? t('tailWind', { n: num(Math.abs(head), 0) }) : t('crossWind')}
+                    </Text>
+                  ) : null}
+                  {withCurrent != null && Math.abs(withCurrent) >= 0.3 ? (
+                    <Text style={styles.runHomeText}>
+                      {withCurrent < 0 ? t('currentAgainst', { n: num(Math.abs(withCurrent)) }) : t('currentWith', { n: num(Math.abs(withCurrent)) })}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            })()}
             <ReasonList reasons={conditions.reasons} />
-            {!conditionsLive ? <Text style={styles.sub}>📴 {t('savedForecast')}</Text> : null}
+            {!conditionsLive ? <Text style={styles.sub}>{t('savedForecast')}</Text> : null}
           </>
         ) : (
           <Text style={styles.sub}>{t('loading')}</Text>
@@ -414,6 +445,10 @@ export default function TripScreen() {
           <HourStrip hours={trip.forecast_snapshot} selected={null} onSelect={() => {}} />
         </Card>
       ) : null}
+
+      <Card>
+        <BuddyBoats />
+      </Card>
 
       <BigButton
         label={t('reportHazard')}
@@ -434,11 +469,14 @@ const styles = StyleSheet.create({
   bigTime: { fontSize: 56, fontWeight: '900', color: colors.ink },
   sub: { fontSize: 14, color: colors.inkSoft, lineHeight: 20 },
   tall: { minHeight: 84 },
-  status: { borderRadius: 20, padding: 18, alignItems: 'center', gap: 2 },
+  status: { borderRadius: 6, padding: 18, alignItems: 'center', gap: 2 },
   statusText: { fontSize: 22, fontWeight: '900', color: colors.white },
   statusLabel: { fontSize: 15, fontWeight: '700', color: colors.white, textAlign: 'center' },
   countdown: { fontSize: 52, fontWeight: '900', color: colors.white },
-  numbers: { fontSize: 17, fontWeight: '700', color: colors.ink, marginBottom: 8 },
+  numbers: { fontSize: 17, lineHeight: 25, fontWeight: '700', color: colors.ink, marginBottom: 8 },
+  runHome: { backgroundColor: colors.sea, borderRadius: 6, padding: 14, marginBottom: 10 },
+  runHomeTitle: { fontSize: 14, fontWeight: '700', color: '#C9D8EE' },
+  runHomeText: { fontSize: 18, lineHeight: 25, fontWeight: '800', color: colors.white },
   scheduled: { gap: 6, paddingVertical: 6 },
   scheduledWhen: { fontSize: 18, fontWeight: '800', color: colors.ink, flexShrink: 1 },
   step: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },

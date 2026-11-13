@@ -66,6 +66,14 @@ class Trip(SQLModel, table=True):
     scheduled_id: Optional[int] = None  # the ScheduledTrip this trip was started from
 
 
+class Buddy(SQLModel, table=True):
+    """Buddy boats: one row per direction. Buddies are alerted when a fisher is overdue or sends SOS."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    buddy_id: int = Field(index=True)
+    created_at: NaiveDatetime = Field(default_factory=utcnow)
+
+
 class Report(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: Optional[int] = None

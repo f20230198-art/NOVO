@@ -96,6 +96,7 @@ async def _handle_auto_sos(session: Session, trip: Trip, user: User, now: dateti
     log.warning("AUTO-SOS for trip %s (user %s): %s late", trip.id, user.id, late)
     alerts = await notify.send_to_contacts(session, user, message, "auto_sos", trip_id=trip.id)
     alerts += await notify.send_to_fisher(session, user, tx.alert_text("auto_sos_fisher", lang, late=late), "auto_sos", trip_id=trip.id)
+    alerts += await notify.send_to_buddies(session, user, "buddy_sos", trip_id=trip.id, link=_maps_link(lat, lon))
     return len(alerts)
 
 
@@ -209,6 +210,9 @@ async def _handle_overdue(session: Session, trip: Trip, user: User, now: datetim
     )
     alerts = await notify.send_to_contacts(session, user, message, "overdue", trip_id=trip.id)
     alerts += await notify.send_to_fisher(session, user, tx.alert_text("overdue_fisher", user.language), "overdue", trip_id=trip.id)
+    # Buddy boats hear at the same moment as the family: the nearest help is often another fisher.
+    alerts += await notify.send_to_buddies(session, user, "buddy_overdue", trip_id=trip.id,
+                                           time=tx.fmt_time(planned_local, "en"), link=_maps_link(lat, lon))
     return sent + len(alerts)
 
 

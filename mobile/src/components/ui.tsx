@@ -15,7 +15,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { Translate } from '../i18n';
 import { useApp } from '../lib/store';
-import { BOAT_TYPES, TOUCH, boatIcon, colors } from '../lib/theme';
+import { BOAT_TYPES, TOUCH, boatIcon, colors, display } from '../lib/theme';
+import { Glyph, WaveRule } from './art';
 import type { BoatType } from '../lib/types';
 
 export function Screen({
@@ -32,7 +33,10 @@ export function Screen({
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <Pressable onLongPress={onTitleLongPress} delayLongPress={800} disabled={!onTitleLongPress}>
-        <Text style={styles.title}>{title}</Text>
+        <View style={styles.titleWrap}>
+          <Text style={[styles.title, display]}>{title}</Text>
+          <WaveRule color={colors.sea} />
+        </View>
       </Pressable>
       {scroll ? (
         <ScrollView contentContainerStyle={styles.scrollBody} keyboardShouldPersistTaps="handled">
@@ -94,10 +98,10 @@ export function BigButton({
       {busy ? (
         <ActivityIndicator color={textColor} />
       ) : (
-        <Text style={[styles.bigButtonText, { color: textColor }]}>
-          {icon ? `${icon}  ` : ''}
-          {label}
-        </Text>
+        <View style={styles.bigButtonRow}>
+          {icon ? <Glyph glyph={icon} size={26} color={textColor} /> : null}
+          <Text style={[styles.bigButtonText, { color: textColor }]}>{label}</Text>
+        </View>
       )}
     </Pressable>
   );
@@ -108,10 +112,12 @@ export function Banner({ text, tone = 'info', icon }: { text: string; tone?: 'in
   const fg = tone === 'warn' ? colors.ink : colors.white;
   return (
     <View style={[styles.banner, { backgroundColor: bg }]}>
-      <Text style={[styles.bannerText, { color: fg }]}>
-        {icon ? `${icon}  ` : ''}
-        {text}
-      </Text>
+      {icon ? (
+        <View style={styles.bannerIcon}>
+          <Glyph glyph={icon} size={24} color={fg} />
+        </View>
+      ) : null}
+      <Text style={[styles.bannerText, { color: fg }]}>{text}</Text>
     </View>
   );
 }
@@ -182,30 +188,33 @@ export function Choice({ label, selected, onPress }: { label: string; selected: 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   screen: { flex: 1, backgroundColor: colors.bg },
-  title: { fontSize: 26, fontWeight: '800', color: colors.ink, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 },
+  titleWrap: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, gap: 2 },
+  title: { fontSize: 32, lineHeight: 38, fontWeight: '900', color: colors.ink, letterSpacing: 0.3 },
   scrollBody: { paddingHorizontal: 16, paddingBottom: 150, gap: 14 },
   fixedBody: { flex: 1, paddingHorizontal: 16, gap: 10 },
   disclaimer: { fontSize: 13, lineHeight: 18, color: colors.inkSoft, textAlign: 'center', marginTop: 6 },
-  card: { backgroundColor: colors.card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: colors.line },
-  section: { fontSize: 18, fontWeight: '700', color: colors.ink, marginBottom: 8 },
+  card: { backgroundColor: colors.card, borderRadius: 6, padding: 16, borderTopWidth: 3, borderTopColor: colors.ink },
+  section: { fontSize: 20, fontWeight: '800', color: colors.ink, marginBottom: 10 },
   bigButton: {
     minHeight: TOUCH + 8,
-    borderRadius: 16,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
     paddingVertical: 12,
   },
-  bigButtonText: { fontSize: 20, fontWeight: '800', textAlign: 'center' },
-  banner: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
-  bannerText: { fontSize: 16, fontWeight: '700', lineHeight: 22 },
+  bigButtonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  bigButtonText: { fontSize: 20, fontWeight: '800', textAlign: 'center', flexShrink: 1 },
+  banner: { borderRadius: 6, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  bannerIcon: { marginTop: 1 },
+  bannerText: { fontSize: 16, fontWeight: '700', lineHeight: 23, flex: 1 },
   field: { marginBottom: 12 },
   fieldLabel: { fontSize: 15, fontWeight: '600', color: colors.ink, marginBottom: 6 },
   input: {
     minHeight: TOUCH,
     borderWidth: 2,
     borderColor: colors.line,
-    borderRadius: 12,
+    borderRadius: 4,
     paddingHorizontal: 14,
     fontSize: 18,
     color: colors.ink,
@@ -215,9 +224,9 @@ const styles = StyleSheet.create({
   boatCard: {
     flex: 1,
     minHeight: 132,
-    borderRadius: 14,
+    borderRadius: 6,
     borderWidth: 2,
-    borderColor: colors.line,
+    borderColor: colors.ink,
     backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
@@ -231,9 +240,9 @@ const styles = StyleSheet.create({
   choice: {
     minHeight: TOUCH,
     paddingHorizontal: 16,
-    borderRadius: 12,
+    borderRadius: 4,
     borderWidth: 2,
-    borderColor: colors.line,
+    borderColor: colors.ink,
     backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
