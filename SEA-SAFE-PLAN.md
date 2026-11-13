@@ -2,7 +2,7 @@
 
 **NOVA 2026 Hackathon · Track D (AI & Autonomous Systems) · 24 hours, ends 12 PM**
 **Problem statement:** Sea Safe: *Making safer fishing decisions through real-time ocean intelligence.*
-**Deliverable:** Android app (APK) + small web page for the co-op dashboard (optional)
+**Deliverable:** Android app (planned as an APK; demonstrated in Expo Go, packaging as an APK is a later production step) + small web page for the co-op dashboard (optional)
 
 > Please read this, then fill in **section 9 (Decisions)** at the bottom. Once both of us approve, we lock the tech stack and start the backend.
 >
@@ -137,7 +137,7 @@ Every other feature must support one of these. If it doesn't, it's cut.
 | Fishing ban calendar (East: 15 Apr–14 Jun · West: 1 Jun–31 Jul) | Could |
 
 ### ❌ Cut (mentioned only as future scope)
-Fish market prices · maritime boundary warning · satellite device integration · phone-line (IVR) version · gamification and badges · man overboard · insurance features · chat between fishers.
+Fish market prices · maritime boundary warning · satellite device integration · phone-line (IVR) version · gamification and badges · man overboard · insurance features. (Chat between fishers was later moved into scope: harbour chat and events in `services/social.py`.)
 
 **Count:** 19 Must · 11 Should · 5 Could. Goal: all Musts done by about hour 14.
 
@@ -182,7 +182,7 @@ Outside the app: an **SMS to the family** (Must) and the **co-op dashboard web p
 ```
 ┌────────────────── ANDROID APP ──────────────────┐
 │ Screens · Mic/speaker · GPS · Offline cache      │
-│ SOS works via phone SMS even without internet    │
+│ SOS via phone SMS: no internet, needs a signal   │
 └───────────────┬──────────────────────────────────┘
                 │ API
 ┌───────────────▼──────────── BACKEND ─────────────────────────────┐
@@ -281,7 +281,7 @@ Chosen with the Beaufort scale and the WMO sea-state table as a guide. They are 
 
 | Risk | Our answer |
 |---|---|
-| No phone signal far out at sea (roughly 5–15 km offshore) | What still works with no signal: the saved forecast, the answer read from it, and the "head back" and "are you back?" alarms set on the phone at departure. What does not: SOS and live updates, which need a signal. The overdue alert is sent by the server, so the family is still told. Beyond coverage, satellite devices (GEMINI, Nabhmitra) are the answer, and we say so |
+| No phone signal far out at sea (roughly 5–15 km offshore) | What still works with no signal: the saved forecast, the answer read from it, and the "head back" and "are you back?" alarms set on the phone at departure. What does not: SOS and live updates, which need a signal. The overdue alert is sent by the server, so the family is still told, provided an SMS service is configured or the family phone is linked. Beyond coverage, satellite devices (GEMINI, Nabhmitra) are the answer, and we say so |
 | Forecast accuracy near the coast | Confidence level, official warnings override, old or missing data is never SAFE, clear "advisory only" disclaimer |
 | "Government apps already do this" | We say it first: they broadcast, we personalise and protect the whole trip |
 | Fishers won't share their spots | Report positions rounded, names hidden by default, boat positions visible to the co-op only (admin key) |

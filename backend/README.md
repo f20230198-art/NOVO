@@ -23,7 +23,7 @@ python -m venv .venv
 .venv/Scripts/pytest -q
 ```
 
-105 tests. They need no network and no keys: the weather fetch is patched to fail, the demo scenarios run on built-in placeholder rows, and the LLM is a fake where a test needs one.
+214 tests. They need no network and no keys: the weather fetch is patched to fail, the demo scenarios run on built-in placeholder rows, and the LLM is a fake where a test needs one.
 
 ## Environment (`.env`, copy from `.env.example`)
 

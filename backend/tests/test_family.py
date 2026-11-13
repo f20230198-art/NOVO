@@ -40,6 +40,9 @@ def test_family_phone_receives_sos_overdue_and_all_clear(client):
     alerts = client.get("/alerts", headers=headers).json()
     assert any(a["kind"] == "sos" and a["channel"] == "message" for a in alerts)
     assert not any(a["kind"] == "sos" and a["channel"] == "simulated" for a in alerts)
+    # A linked family phone counts as reaching the family.
+    sos_trip = client.get("/trips/active", headers=headers).json()["trip"]
+    assert sos_trip["contacts_alerted"] is True and sos_trip["contacts_reached"] is True
 
     # "I'm back" sends the all-clear; only new messages after the last id.
     trip = client.get("/trips/active", headers=headers).json()["trip"]

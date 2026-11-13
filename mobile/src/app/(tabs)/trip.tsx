@@ -265,7 +265,10 @@ export default function TripScreen() {
       }
       lastHeadBack.current = next?.head_back?.created_at ?? lastHeadBack.current;
       if (next && next.status === 'overdue' && lastStatus.current === 'active') {
-        void notifyLocal(t('areYouBack'), next.contacts_alerted ? t('familyAlerted') : t('areYouBackBody'));
+        void notifyLocal(
+          t('areYouBack'),
+          next.contacts_alerted ? t(next.contacts_reached ? 'familyAlerted' : 'alertNotDelivered') : t('areYouBackBody'),
+        );
       }
       lastStatus.current = next?.status ?? null;
       setTrip(next);
@@ -757,7 +760,7 @@ export default function TripScreen() {
           <Stat label={t('returnBy')} value={clock(t, new Date(plannedMs))} />
         </View>
         {trip.status === 'emergency' || (trip.status === 'overdue' && trip.contacts_alerted) ? (
-          <Text style={styles.statusLabel}>{t('familyAlerted')}</Text>
+          <Text style={styles.statusLabel}>{t(trip.contacts_reached ? 'familyAlerted' : 'alertNotDelivered')}</Text>
         ) : trip.status === 'overdue' || late ? (
           <Text style={styles.statusLabel}>{t('areYouBackBody')}</Text>
         ) : (
@@ -765,7 +768,9 @@ export default function TripScreen() {
         )}
       </FadeIn>
 
-      {trip.auto_sos_sent ? <Banner tone="danger" icon="lifebuoy" text={t('autoSosSent')} /> : null}
+      {trip.auto_sos_sent ? (
+        <Banner tone="danger" icon="lifebuoy" text={t(trip.contacts_reached ? 'autoSosSent' : 'autoSosNotDelivered')} />
+      ) : null}
 
       <BigButton label={t('imBack')} icon="house" onPress={finish} busy={busy} color={colors.safe} style={styles.tall} />
       {trip.status !== 'emergency' ? (

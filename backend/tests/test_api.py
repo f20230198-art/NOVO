@@ -158,7 +158,11 @@ def test_overdue_asks_the_fisher_before_the_family(client, monkeypatch):
     client.post(f"/demo/trips/{trip['id']}/fast-forward")
     asyncio.run(monitor.tick(datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=16)))
     assert kinds().count("overdue") == 2
-    assert client.get(f"/trips/{trip['id']}", headers=headers).json()["contacts_alerted"] is True
+    told = client.get(f"/trips/{trip['id']}", headers=headers).json()
+    assert told["contacts_alerted"] is True
+    # No SMS/Telegram key and no linked family phone: the alerts are only simulated, so the
+    # app must not tell the fisher the family knows.
+    assert told["contacts_reached"] is False
 
     # Adding time after that tells the family he is OK.
     client.post(f"/trips/{trip['id']}/extend", headers=headers, json={"minutes": 60})

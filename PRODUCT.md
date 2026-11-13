@@ -6,12 +6,12 @@
 
 android
 
-(Expo / React Native app shipped as an Android APK. The co-op dashboard is a separate single web page served by the backend at `/dashboard`.)
+(Expo / React Native app. For the hackathon it runs in Expo Go; it can be packaged as an Android APK with EAS for production. The co-op dashboard is a separate single web page served by the backend at `/dashboard`.)
 
 ## Users
 
 - **Small-scale fishers** in Kerala (first harbour: Muthalapozhi; also Vizhinjam, Kochi) and the UAE east coast (Fujairah). They own non-motorised, outboard-motorised or small mechanised boats. They use the app at the harbour before dawn, often in strong sunlight or darkness, sometimes with wet hands, often one-handed, on low-cost Android phones. Many have low literacy; Malayalam first, English second. Job: decide "can I go out, when, and when must I be back", then be protected while at sea.
-- **Families and emergency contacts**: never open the app; they receive SMS (overdue, SOS with map link).
+- **Families and emergency contacts**: receive alerts (overdue, SOS with map link) by SMS when an SMS service is configured, or in the family mode of the app after linking with a 6-digit code. With neither, alerts are only logged as `simulated`.
 - **Co-op / harbour staff**: watch the dashboard on a laptop or wall screen: boats at sea, overdue boats, SOS, live alerts, community reports, official warnings.
 - **Hackathon judges** (NOVA 2026, Track D): see the app on a phone and the dashboard on a projector during a live demo. The redesign serves real fishers and the projector demo equally.
 
@@ -29,7 +29,7 @@ Government apps (SAMUDRA, Machli, Fisher Friend) broadcast the same forecast to 
 - Flow: Ask the Sea → Start this trip → Trip Guardian (return-by countdown, head-back alert, overdue SMS, SOS) → Sea Watch (one-tap hazard reports with expiry and 👍/👎) which feeds back into the advice.
 - SOS: long-press, opens the phone's SMS composer to contacts + Coast Guard 1554 with GPS link; must work with no backend.
 - Weak or no signal offshore: the trip forecast is saved on the phone.
-- Demo controls (scenario switch, fast-forward, run monitor) are hidden in Profile.
+- Demo controls (scenario switch, fast-forward, run monitor) are in the Simulation menu, opened by long-pressing the title on Home or Profile.
 
 ## Capabilities and Constraints
 
@@ -37,8 +37,8 @@ Government apps (SAMUDRA, Machli, Fisher Friend) broadcast the same forecast to 
 - Official warnings and community reports can only raise risk.
 - Every safety screen shows: "Advisory only. Always follow official warnings (INCOIS / IMD / Coast Guard 1554)."
 - Everything works with no API keys (template answers, alerts marked `simulated`).
-- Five screens only: Onboarding, Home, Trip, Sea Watch, Profile. Plus the dashboard page.
-- Out of scope: market prices, maritime boundary alerts, IVR, gamification, chat, catch sharing.
+- Screens: Onboarding, six tabs (Home, Assistant, Trip, Sea Watch, Community, Profile) and the family view. Plus the dashboard page.
+- Out of scope: market prices, maritime boundary alerts, IVR, gamification, catch sharing. (Community chat and events are in scope.)
 - Languages: English and Malayalam required.
 
 ## Brand Commitments

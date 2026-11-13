@@ -240,6 +240,8 @@ const en = {
   reportHazard: 'Report hazard',
   headBack: 'Head back now',
   familyAlerted: 'Your contacts have been alerted.',
+  alertNotDelivered: 'Sea Safe could not message your contacts: no SMS service is set up. If you have not texted them yourself, call them or the Coast Guard on 1554.',
+  autoSosNotDelivered: 'Automatic SOS raised, but Sea Safe could not message your contacts: no SMS service is set up. Call them or the Coast Guard on 1554.',
   graceNote: 'If you are not back {n} minutes after this time, you are asked first, then your contacts are alerted.',
   areYouBack: 'Are you back?',
   areYouBackBody: "Tap 'I'm back' or 'More time' now, or your contacts will be alerted.",

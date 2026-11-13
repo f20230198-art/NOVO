@@ -12,7 +12,7 @@ from ..deps import current_user
 from ..models import Alert, Trip, User
 from ..services import advisor as advisor_service
 from ..services import escalation, forecast, notify, risk_engine
-from ..services.monitor import _maps_link, contacts_alerted, trip_position
+from ..services.monitor import _maps_link, contacts_alerted, contacts_reached, trip_position
 from ..templates import explanations as tx
 
 router = APIRouter(prefix="/trips", tags=["trips"])
@@ -75,6 +75,9 @@ def trip_out(trip: Trip, session: Session) -> dict:
         "ended_at": iso_utc(trip.ended_at), "forecast_snapshot": snapshot,
         # False while the fisher is still being asked "are you back?".
         "contacts_alerted": contacts_alerted(session, trip),
+        # True only when one of those alerts actually went out. With no SMS/Telegram key and no
+        # linked family phone they are logged as `simulated`, and the app says so.
+        "contacts_reached": contacts_reached(session, trip),
         # Shown on the trip screen even when push notifications are not available.
         "head_back": {"message": head_back.message, "created_at": iso_utc(head_back.created_at)}
         if head_back and not trip.head_back_armed else None,

@@ -181,6 +181,8 @@ export type Trip = {
   last_ping_at: string | null;
   /** False while the fisher is still being asked "are you back?" before the family is told. */
   contacts_alerted: boolean;
+  /** True only when an alert actually reached a contact (SMS, Telegram or a linked family phone). */
+  contacts_reached?: boolean;
   forecast_snapshot: HourRisk[];
   head_back: { message: string; created_at: string } | null;
   max_offshore_km?: number;

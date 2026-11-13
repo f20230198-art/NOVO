@@ -13,7 +13,7 @@ npx expo start --go         # scan the QR code with Expo Go
 
 `--go` is needed because `expo-dev-client` is installed; without it the QR code targets a development build.
 
-The server address can also be changed on the phone: **Profile → long-press the "Profile" title → Demo panel → Server address**. Use this when the laptop's IP changes after the APK is built.
+The server address can also be changed on the phone: **Server settings** on the first screen, or **long-press the title on Home or Profile → Simulation menu → Server settings**. Use this when the laptop's IP changes.
 
 ## What works where
 
@@ -29,13 +29,18 @@ Voice input needs a development build or the APK, because `expo-speech-recogniti
 
 ## Build
 
+For the hackathon the app runs in **Expo Go** (see "Run on a phone" above); no APK has been built. The project is a standard Expo app with `eas.json` profiles, so packaging it is a build step, not a code change:
+
 ```bash
-npm i -g eas-cli && eas login
-eas build -p android --profile development   # dev client, for testing voice input with live reload
-eas build -p android --profile preview       # installable APK for the demo
+npx eas-cli@latest login
+npx eas-cli@latest build -p android --profile development   # dev client: voice input with live reload
+npx eas-cli@latest build -p android --profile preview       # installable APK
+npx eas-cli@latest build -p android --profile production    # Play Store bundle
 ```
 
-`EXPO_PUBLIC_API_URL` is baked in at build time. Set it in `.env` before building, or change it in the demo panel afterwards.
+Building locally on Windows (`npx expo prebuild -p android`, then `gradlew assembleRelease`) works only from a short path such as `C:\ss`: the native C++ build fails past Windows' 260-character path limit.
+
+`EXPO_PUBLIC_API_URL` is baked in at build time. Set it in `.env` before building, or change it in the app afterwards (Server settings).
 
 Typecheck: `npx tsc --noEmit`.
 
@@ -47,13 +52,13 @@ Typecheck: `npx tsc --noEmit`.
 - **Onboarding works offline.** The profile and contacts are saved on the phone first; registration with the server is retried on the next start. If the server database was reset, the app registers again by itself.
 - **Head-back and overdue** reach the phone by polling the trip every 20 seconds, so they show without push notifications.
 - **Cleartext HTTP** is enabled for Android (`expo-build-properties`) because the demo backend is `http://` on the LAN.
-- **Demo panel** has an extra `rough` scenario and a "Run monitor now" button besides what the spec lists.
+- **Simulation menu** has an extra `rough` scenario and a "Run monitor now" button besides what the spec lists.
 - `.npmrc` sets `legacy-peer-deps=true`: without it `npm install` fails on a `react-dom` peer-version mismatch inside Expo Router's dependencies.
 
 ## Not verified / to do
 
-- **The app has not been run on a device or emulator.** It typechecks, `expo-doctor` passes and the Android JS bundle builds, but every screen still needs a pass on a real phone.
-- **No APK has been built.**
+- **Tested in Expo Go only.** It typechecks, lints clean and the main flows were tried in Expo Go on a Galaxy M31 (see the root README). Voice input and local notifications only run in a native build, which has not been made yet.
+- **No APK has been built.** The app runs in Expo Go; see Build.
 - **The Malayalam strings need a native-speaker review** (`src/i18n/ml.ts`).
 - Malayalam speech needs the Malayalam voice and language pack installed in the phone's Google speech services.
 - Pre-departure checklist, catch sharing and the fishing-ban calendar (all "Could") are not built.

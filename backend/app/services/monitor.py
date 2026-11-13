@@ -55,6 +55,17 @@ def contacts_alerted(session: Session, trip: Trip) -> bool:
     ).first() is not None
 
 
+def contacts_reached(session: Session, trip: Trip) -> bool:
+    """True when at least one of those contact alerts actually went out (SMS, Telegram or a linked
+    family phone). With no channel configured they are only logged as `simulated`, and the app
+    must not tell the fisher the family knows."""
+    sent = select(Alert).where(Alert.trip_id == trip.id, Alert.status == "sent", Alert.contact_id.is_not(None))  # type: ignore[union-attr]
+    overdue = sent.where(Alert.kind == "overdue", Alert.created_at > trip.planned_return)
+    if session.exec(overdue).first() is not None:
+        return True
+    return session.exec(sent.where(Alert.kind.in_(("sos", "auto_sos")))).first() is not None  # type: ignore[union-attr]
+
+
 def has_track(trip: Trip) -> bool:
     """The phone reported a position at least once after the trip started."""
     return trip.last_ping_at is not None and trip.last_ping_at > trip.started_at
