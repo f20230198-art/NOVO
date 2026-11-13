@@ -28,6 +28,18 @@ Small-scale fishers decide every morning whether to go out, often with no reliab
 | **Community** | Hazard reports, harbour chat and events. A report only counts once another fisher confirms it |
 | **Family app + Ask by SMS** | Family members get alerts on their own phone; phones without data can ask by SMS |
 
+## Screenshots
+
+Recorded on a Samsung Galaxy M31 (Android 12) at Vizhinjam, Kerala. Full 3-minute demo video: [docs/demo/sea-safe-demo.mp4](docs/demo/sea-safe-demo.mp4).
+
+| Sign up | Sea map + verdict | Harbour mouth + sea now |
+|---|---|---|
+| ![Sign up](docs/screenshots/01-signup.jpg) | ![Home map](docs/screenshots/02-home-map.jpg) | ![Harbour mouth](docs/screenshots/03-harbour-mouth.jpg) |
+| **Meera assistant** | **Cyclone: UNSAFE** | **Trip planner** |
+| ![Meera](docs/screenshots/04-meera.jpg) | ![Cyclone](docs/screenshots/05-cyclone-unsafe.jpg) | ![Trip planner](docs/screenshots/06-trip-planner.jpg) |
+| **Hazard report** | **Malayalam UI** | **SOS + Coast Guard call** |
+| ![Hazard report](docs/screenshots/07-hazard-report.jpg) | ![Malayalam](docs/screenshots/08-malayalam.jpg) | ![SOS](docs/screenshots/09-sos.jpg) |
+
 ### Safety rules we never break
 
 1. **Rules decide, AI explains.** A tested rule engine sets the verdict (`backend/app/services/risk_engine.py`). The AI only puts it into words and can never change it.
@@ -85,6 +97,33 @@ Scan the QR code with **Expo Go**.
 
 > **Voice input** doesn’t work in Expo Go: type your questions there, or build the APK (below) to use voice input.
 
+### Alternative: phone on a USB cable (no shared Wi-Fi needed)
+
+This is how the demo video was recorded. Needs the Android SDK platform-tools (`adb`) and **Developer options → USB debugging** on the phone.
+
+```powershell
+adb devices                       # the phone should be listed as "device"
+adb reverse tcp:8001 tcp:8001     # phone's 127.0.0.1:8001 -> laptop backend
+adb reverse tcp:8081 tcp:8081     # phone's 127.0.0.1:8081 -> Metro bundler
+cd mobile
+$env:EXPO_PUBLIC_API_URL = "http://127.0.0.1:8001"
+npx expo start --go --localhost
+adb shell am start -a android.intent.action.VIEW -d "exp://127.0.0.1:8081" host.exp.exponent
+```
+
+### Building the APK locally on Windows
+
+Run the build from a **short path** (for example copy `mobile/` to `C:\ss\mobile`). From a deep folder such as OneDrive\Desktop\…, the native C++ build of `react-native-screens` goes over Windows’ 260-character path limit and fails. `subst` doesn’t help, because Node resolves the real path.
+
+```powershell
+cd C:\ss\mobile
+npx expo prebuild -p android
+cd android
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+.\gradlew.bat assembleRelease -PreactNativeArchitectures=arm64-v8a
+adb install app\build\outputs\apk\release\app-release.apk
+```
+
 ### Optional: AI keys
 
 Copy `backend/.env.example` to `backend/.env` and add one or more `GROQ_API_KEY` or `GEMINI_API_KEY` values for natural AI answers. **Everything works without them.**
@@ -124,7 +163,9 @@ Copy `backend/.env.example` to `backend/.env` and add one or more `GROQ_API_KEY`
 - Done: Backend: 214 tests passing.
 - Done: App: type check and lint are clean.
 - Done: Voice assistant: English and Malayalam.
-- Open: Not yet tested end to end on a real phone.
+- Done: Tested on a real phone (Galaxy M31, Expo Go): sign-up, map, Meera, cyclone simulation, trip planner, reports, Malayalam, SOS.
+- Open: Local APK build not finished yet (see the short-path note above); EAS cloud build is the fallback.
+- Open: Contact phone numbers accept letters; validate the field so the SOS SMS always has a valid recipient.
 - Open: The Malayalam text needs a native speaker to check it.
 - Open: Twilio SMS, Telegram and push notifications have not been tried with real keys; they run as `simulated`.
 
