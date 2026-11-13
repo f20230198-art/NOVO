@@ -15,6 +15,33 @@ def init_db() -> None:
     from . import models  # noqa: F401  (registers the tables)
 
     SQLModel.metadata.create_all(engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns() -> None:
+    """create_all never alters an existing table. Add new columns to an old database file
+    (each new column has a default, so existing rows stay valid)."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in SQLModel.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in have:
+                    continue
+                ddl_type = col.type.compile(dialect=engine.dialect)
+                default = col.default.arg if col.default is not None and not callable(col.default.arg) else None
+                clause = ""
+                if isinstance(default, bool):
+                    clause = f" DEFAULT {int(default) if _url.startswith('sqlite') else str(default).upper()}"
+                elif isinstance(default, (int, float)):
+                    clause = f" DEFAULT {default}"
+                elif isinstance(default, str):
+                    clause = " DEFAULT '" + default.replace("'", "''") + "'"
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl_type}{clause}'))
 
 
 def get_session():

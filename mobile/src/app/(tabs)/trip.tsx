@@ -6,14 +6,48 @@ import { HourStrip, LevelPill, ReasonList } from '../../components/forecast';
 import { Banner, BigButton, Card, Screen, SectionTitle } from '../../components/ui';
 import { api } from '../../lib/api';
 import { formatClock, formatDuration, num } from '../../lib/format';
+import type { Translate } from '../../i18n';
 import { getWorkingPosition } from '../../lib/location';
-import { notifyLocal } from '../../lib/notifications';
-import { loadJson, useApp } from '../../lib/store';
+import { cancelNotification, notifyAt, notifyLocal } from '../../lib/notifications';
+import { loadJson, saveJson, useApp } from '../../lib/store';
+import { clearTrack, sendPosition } from '../../lib/trackQueue';
 import { colors } from '../../lib/theme';
-import type { Forecast, HourRisk, Trip } from '../../lib/types';
+import type { Forecast, HourRisk, ScheduledTrip, Trip } from '../../lib/types';
 
 const HALF_HOUR = 30 * 60 * 1000;
 const FIVE_MIN = 5 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+const ALARMS_KEY = 'seasafe.tripAlarms';
+
+/** The next hour in the saved forecast that is UNSAFE for this boat, if any. */
+function nextUnsafeHour(trip: Trip, now: number): HourRisk | null {
+  return trip.forecast_snapshot.find((h) => h.level === 'UNSAFE' && new Date(h.time).getTime() + HOUR > now) ?? null;
+}
+
+async function clearAlarms(): Promise<void> {
+  const ids = (await loadJson<string[]>(ALARMS_KEY)) ?? [];
+  await Promise.all(ids.map((id) => cancelNotification(id)));
+  await saveJson(ALARMS_KEY, null);
+}
+
+/**
+ * Alarms kept on the phone itself, so they ring with no signal and with the app closed:
+ * "are you back?" at the return time, and "head back" an hour before the saved forecast
+ * turns UNSAFE. The server sends the same alerts when it can reach the phone.
+ */
+async function setAlarms(trip: Trip, t: Translate): Promise<void> {
+  await clearAlarms();
+  const ids: string[] = [];
+  const back = await notifyAt(new Date(trip.planned_return), t('areYouBack'), t('areYouBackBody'));
+  if (back) ids.push(back);
+  const bad = nextUnsafeHour(trip, Date.now());
+  if (bad) {
+    const starts = new Date(bad.time);
+    const id = await notifyAt(new Date(starts.getTime() - HOUR), t('headBack'), t('headBackSaved', { time: formatClock(starts) }));
+    if (id) ids.push(id);
+  }
+  await saveJson(ALARMS_KEY, ids);
+}
 
 function roundUpToHalfHour(ms: number): Date {
   return new Date(Math.ceil(ms / HALF_HOUR) * HALF_HOUR);
@@ -40,9 +74,11 @@ export default function TripScreen() {
   const [message, setMessage] = useState<{ text: string; tone: 'info' | 'warn' } | null>(null);
   const [conditions, setConditions] = useState<HourRisk | null>(null);
   const [conditionsLive, setConditionsLive] = useState(false);
+  const [scheduled, setScheduled] = useState<ScheduledTrip[]>([]);
 
   const lastHeadBack = useRef<string | null>(null);
   const lastStatus = useRef<string | null>(null);
+  const warnedOffline = useRef<string | null>(null);
   const tripRef = useRef<Trip | null>(trip);
   tripRef.current = trip;
 
@@ -83,7 +119,7 @@ export default function TripScreen() {
       }
       lastHeadBack.current = next?.head_back?.created_at ?? lastHeadBack.current;
       if (next && next.status === 'overdue' && lastStatus.current === 'active') {
-        void notifyLocal(t('tripOverdue'), t('familyAlerted'));
+        void notifyLocal(t('areYouBack'), next.contacts_alerted ? t('familyAlerted') : t('areYouBackBody'));
       }
       lastStatus.current = next?.status ?? null;
       setTrip(next);
@@ -97,6 +133,11 @@ export default function TripScreen() {
       applyServerTrip((await api.activeTrip()).trip);
     } catch {
       // offline: keep showing the trip saved on the phone
+    }
+    try {
+      setScheduled((await api.scheduled()).filter((s) => s.status === 'scheduled'));
+    } catch {
+      // offline
     }
   }, [applyServerTrip, profile?.token]);
 
@@ -121,7 +162,7 @@ export default function TripScreen() {
       const current = tripRef.current;
       if (!current) return;
       const position = await getWorkingPosition({ lat: profile.home_lat, lon: profile.home_lon });
-      api.pingTrip(current.id, position.lat, position.lon).catch(() => {});
+      void sendPosition(current, position); // queued on the phone when there is no signal
       try {
         const fc = await api.forecast(position.lat, position.lon, profile.boat_type, profile.language);
         if (!cancelled) {
@@ -157,7 +198,29 @@ export default function TripScreen() {
       const started = await api.startTrip(returnAt.toISOString(), position.lat, position.lon);
       lastHeadBack.current = null;
       lastStatus.current = started.status;
+      warnedOffline.current = null;
       setTrip(started);
+      void setAlarms(started, t);
+    } catch {
+      setMessage({ text: t('tripNeedsServer'), tone: 'warn' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startFromSchedule = async (s: ScheduledTrip) => {
+    if (!profile) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const position = await getWorkingPosition({ lat: profile.home_lat, lon: profile.home_lon });
+      const started = await api.startScheduled(s.id, position.lat, position.lon);
+      lastHeadBack.current = null;
+      lastStatus.current = started.status;
+      warnedOffline.current = null;
+      setTrip(started);
+      setScheduled((prev) => prev.filter((x) => x.id !== s.id));
+      void setAlarms(started, t);
     } catch {
       setMessage({ text: t('tripNeedsServer'), tone: 'warn' });
     } finally {
@@ -170,6 +233,8 @@ export default function TripScreen() {
     setBusy(true);
     try {
       await api.endTrip(trip.id);
+      void clearAlarms();
+      void clearTrack();
       setTrip(null);
       setConditions(null);
       setMessage({ text: t('welcomeBack'), tone: 'info' });
@@ -181,12 +246,56 @@ export default function TripScreen() {
     }
   };
 
+  /** "More time": answers the "are you back?" check and moves the return time. */
+  const moreTime = async () => {
+    if (!trip) return;
+    setBusy(true);
+    try {
+      const updated = await api.extendTrip(trip.id, 30);
+      lastStatus.current = updated.status;
+      setTrip(updated);
+      setMessage(null);
+      void setAlarms(updated, t);
+    } catch {
+      setMessage({ text: t('noConnection'), tone: 'warn' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Out of signal: raise "head back" from the forecast saved on the phone.
+  const dangerAhead = trip && isOpen && !trip.head_back ? nextUnsafeHour(trip, now) : null;
+  const dangerSoon = dangerAhead && new Date(dangerAhead.time).getTime() - now < 2 * HOUR ? dangerAhead : null;
+  const dangerTime = dangerSoon?.time ?? null;
+  useEffect(() => {
+    if (!dangerTime || warnedOffline.current === dangerTime) return;
+    warnedOffline.current = dangerTime;
+    Vibration.vibrate([0, 500, 200, 500]);
+  }, [dangerTime]);
+
   if (!profile) return null;
 
   if (!trip || !isOpen) {
     return (
       <Screen title={t('tabTrip')}>
         {message ? <Banner text={message.text} tone={message.tone} icon={message.tone === 'warn' ? '⚠' : '✔'} /> : null}
+        {scheduled.length > 0 ? (
+          <Card>
+            <SectionTitle>{t('scheduledTrips')}</SectionTitle>
+            {scheduled.map((s) => (
+              <View key={s.id} style={styles.scheduled}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.scheduledWhen}>
+                    {s.day_label} · {s.depart_label} → {s.return_label}
+                  </Text>
+                  <LevelPill level={s.verdict} />
+                </View>
+                {s.note ? <Text style={styles.sub}>{s.note}</Text> : null}
+                <BigButton label={t('startScheduled')} icon="⛵" onPress={() => startFromSchedule(s)} busy={busy} color={colors.safe} />
+              </View>
+            ))}
+          </Card>
+        ) : null}
         <Card>
           <SectionTitle>{t('planTrip')}</SectionTitle>
           <Text style={styles.label}>{t('returnTime')}</Text>
@@ -228,6 +337,9 @@ export default function TripScreen() {
     <Screen title={t('tabTrip')}>
       {message ? <Banner text={message.text} tone={message.tone} icon="⚠" /> : null}
       {trip.head_back ? <Banner tone="danger" icon="🚨" text={trip.head_back.message} /> : null}
+      {dangerSoon ? (
+        <Banner tone="danger" icon="🚨" text={`${t('headBack')}: ${t('headBackSaved', { time: formatClock(new Date(dangerSoon.time)) })}`} />
+      ) : null}
 
       <View style={[styles.status, { backgroundColor: statusColor }]}>
         <Text style={styles.statusText}>
@@ -238,14 +350,45 @@ export default function TripScreen() {
         <Text style={styles.statusLabel}>
           ↩ {t('returnBy')} {formatClock(new Date(plannedMs))}
         </Text>
-        {trip.status === 'overdue' || trip.status === 'emergency' ? (
+        {trip.status === 'emergency' || (trip.status === 'overdue' && trip.contacts_alerted) ? (
           <Text style={styles.statusLabel}>{t('familyAlerted')}</Text>
+        ) : trip.status === 'overdue' || late ? (
+          <Text style={styles.statusLabel}>{t('areYouBackBody')}</Text>
         ) : (
           <Text style={styles.statusLabel}>{t('graceNote', { n: trip.grace_minutes })}</Text>
         )}
       </View>
 
+      {trip.auto_sos_sent ? <Banner tone="danger" icon="🆘" text={t('autoSosSent')} /> : null}
+
       <BigButton label={t('imBack')} icon="🏠" onPress={finish} busy={busy} color={colors.safe} style={styles.tall} />
+      {trip.status !== 'emergency' ? (
+        <BigButton label={t('moreTime')} icon="⏱" onPress={moreTime} busy={busy} color={colors.line} textColor={colors.ink} />
+      ) : null}
+
+      {trip.escalation && trip.status !== 'emergency' ? (
+        <Card>
+          <SectionTitle>{t('ifNoWord')}</SectionTitle>
+          {[
+            { at: trip.escalation.ask_at, label: t('stepAsk'), icon: '❓' },
+            { at: trip.escalation.contacts_at, label: t('stepContacts'), icon: '📩' },
+            { at: trip.escalation.auto_sos_at, label: t('stepAutoSos', { km: trip.escalation.offshore_km }), icon: '🆘' },
+          ].map((step) => {
+            const passed = new Date(step.at).getTime() <= now;
+            return (
+              <View key={step.icon} style={[styles.step, passed && styles.stepPassed]}>
+                <Text style={styles.stepTime}>{formatClock(new Date(step.at))}</Text>
+                <Text style={styles.stepLabel}>
+                  {step.icon} {step.label}
+                </Text>
+              </View>
+            );
+          })}
+          <Text style={styles.sub}>
+            {t('furthestOut', { km: num(trip.max_offshore_km ?? 0) })} · {t('extendBeforeSignal')}
+          </Text>
+        </Card>
+      ) : null}
 
       <Card>
         <View style={styles.rowBetween}>
@@ -296,4 +439,10 @@ const styles = StyleSheet.create({
   statusLabel: { fontSize: 15, fontWeight: '700', color: colors.white, textAlign: 'center' },
   countdown: { fontSize: 52, fontWeight: '900', color: colors.white },
   numbers: { fontSize: 17, fontWeight: '700', color: colors.ink, marginBottom: 8 },
+  scheduled: { gap: 6, paddingVertical: 6 },
+  scheduledWhen: { fontSize: 18, fontWeight: '800', color: colors.ink, flexShrink: 1 },
+  step: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
+  stepPassed: { opacity: 0.45 },
+  stepTime: { fontSize: 18, fontWeight: '900', color: colors.ink, width: 88 },
+  stepLabel: { fontSize: 15, fontWeight: '600', color: colors.ink, flexShrink: 1 },
 });

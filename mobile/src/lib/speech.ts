@@ -1,4 +1,5 @@
 import * as Speech from 'expo-speech';
+import { Platform } from 'react-native';
 
 import { speechLocale } from '../i18n';
 import type { Lang } from './types';
@@ -30,6 +31,34 @@ export function voiceInputAvailable(): boolean {
   }
 }
 
+// The Google app's recogniser understands Malayalam. A phone's default recogniser may be an
+// on-device one that only knows a few major languages, so ask for Google's when it is there.
+const GOOGLE_RECOGNISER = 'com.google.android.googlequicksearchbox';
+
+function recogniserPackage(mod: SttModule): string | undefined {
+  if (Platform.OS !== 'android') return undefined;
+  try {
+    return mod.getSpeechRecognitionServices().includes(GOOGLE_RECOGNISER) ? GOOGLE_RECOGNISER : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * False only when the phone lists its voices and none of them speaks this language.
+ * An empty list means "not known yet", which is treated as fine.
+ */
+export async function canSpeak(lang: Lang): Promise<boolean> {
+  try {
+    const voices = await Speech.getAvailableVoicesAsync();
+    if (!voices.length) return true;
+    const prefix = speechLocale[lang].slice(0, 2).toLowerCase();
+    return voices.some((v) => (v.language ?? '').toLowerCase().startsWith(prefix));
+  } catch {
+    return true;
+  }
+}
+
 export type ListenHandlers = {
   onText: (text: string, isFinal: boolean) => void;
   onEnd: () => void;
@@ -57,7 +86,13 @@ export async function startListening(lang: Lang, handlers: ListenHandlers): Prom
         handlers.onEnd();
       }),
     ];
-    mod.start({ lang: speechLocale[lang], interimResults: true, continuous: false, maxAlternatives: 1 });
+    mod.start({
+      lang: speechLocale[lang],
+      interimResults: true,
+      continuous: false,
+      maxAlternatives: 1,
+      androidRecognitionServicePackage: recogniserPackage(mod),
+    });
     return () => {
       try {
         mod.stop();

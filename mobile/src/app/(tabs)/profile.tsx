@@ -152,6 +152,20 @@ export default function ProfileScreen() {
             }
           />
           <BigButton
+            label={t('loseSignal')}
+            icon="📡"
+            color={colors.inkSoft}
+            busy={demoBusy}
+            onPress={() =>
+              run(async () => {
+                if (!trip) return t('noActiveTrip');
+                await api.loseSignal(trip.id);
+                await api.tick();
+                return t('done');
+              })
+            }
+          />
+          <BigButton
             label={t('runMonitor')}
             icon="🔁"
             color={colors.inkSoft}

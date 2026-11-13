@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from ..db import get_session
-from ..deps import optional_user
+from ..deps import current_user
 from ..models import User
 from ..services import community
 
@@ -30,12 +30,13 @@ def report_types():
 
 
 @router.post("")
-def create(body: ReportIn, user: Optional[User] = Depends(optional_user), session: Session = Depends(get_session)):
+def create(body: ReportIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """A registered fisher posts a report. `anonymous` hides the name from others, not from the server."""
     if body.type not in community.REPORT_EXPIRY_HOURS:
         raise HTTPException(status_code=422, detail=f"type must be one of {', '.join(community.REPORT_EXPIRY_HOURS)}")
-    report = community.create_report(
-        session, body.type, body.lat, body.lon, body.note, body.anonymous, user_id=user.id if user else None
-    )
+    if community.reports_in_last_hour(session, user.id) >= community.MAX_REPORTS_PER_HOUR:
+        raise HTTPException(status_code=429, detail="Too many reports in the last hour. Try again later.")
+    report = community.create_report(session, body.type, body.lat, body.lon, body.note, body.anonymous, user_id=user.id)
     return community.report_out(session, report)
 
 
@@ -50,8 +51,12 @@ def list_reports(
 
 
 @router.post("/{report_id}/vote")
-def vote(report_id: int, body: VoteIn, session: Session = Depends(get_session)):
-    report = community.vote(session, report_id, body.dir)
+def vote(report_id: int, body: VoteIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """One vote per fisher per report, and not on your own report."""
+    try:
+        report = community.vote(session, report_id, user.id, body.dir)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
     out = community.report_out(session, report)

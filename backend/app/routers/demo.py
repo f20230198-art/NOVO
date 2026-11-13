@@ -12,11 +12,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from ..config import settings
 from ..db import get_session, utcnow
-from ..models import Alert, Contact, Report, Trip, User, Warning
-from ..services import community, forecast, monitor
+from ..models import (Alert, AssistantMessage, ChatMessage, CommunityEvent, Contact, Report, ScheduledTrip, Trip, User,
+                      Warning)
+from ..services import community, escalation, forecast, monitor, social
 
-router = APIRouter(prefix="/demo", tags=["demo"])
+def _demo_only() -> None:
+    if not settings.demo_mode:
+        raise HTTPException(status_code=404, detail="Demo endpoints are switched off (DEMO_MODE=false)")
+
+
+router = APIRouter(prefix="/demo", tags=["demo"], dependencies=[Depends(_demo_only)])
 
 SEED_PHONE_PREFIX = "+91000000"
 SEED_SOURCE = "Demo seed"
@@ -58,6 +65,27 @@ def fast_forward(trip_id: int, session: Session = Depends(get_session)):
     return {"ok": True, "trip_id": trip.id, "status": trip.status}
 
 
+@router.post("/trips/{trip_id}/lose-signal")
+def lose_signal(trip_id: int, session: Session = Depends(get_session)):
+    """Act out the auto-SOS case: the boat went 8 km out, the phone went silent, and the trip
+    is now past the automatic-SOS time. The next monitor tick sends the automatic SOS."""
+    trip = session.get(Trip, trip_id)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    user = session.get(User, trip.user_id)
+    now = utcnow()
+    minutes = trip.grace_minutes + escalation.auto_sos_minutes(user.boat_type if user else "non_motorised") + 1
+    trip.planned_return = now - timedelta(minutes=minutes)
+    trip.started_at = trip.planned_return - timedelta(hours=4)
+    trip.last_lat, trip.last_lon = trip.start_lat - 0.05, trip.start_lon - 0.05  # about 7-8 km out
+    trip.max_offshore_km = max(trip.max_offshore_km or 0.0, 7.5)
+    trip.last_ping_at = trip.planned_return - timedelta(minutes=90)
+    trip.status = "active"
+    session.add(trip)
+    session.commit()
+    return {"ok": True, "trip_id": trip.id, "planned_return": str(trip.planned_return)}
+
+
 @router.post("/tick")
 async def tick():
     """Run one monitor pass now instead of waiting for the next interval."""
@@ -67,10 +95,13 @@ async def tick():
 def _clear_seed(session: Session) -> None:
     users = session.exec(select(User).where(User.phone.startswith(SEED_PHONE_PREFIX))).all()  # type: ignore[union-attr]
     ids = [u.id for u in users]
-    for model in (Contact, Trip, Alert, Report):
+    for model in (Contact, Trip, Alert, Report, ScheduledTrip, AssistantMessage, ChatMessage):
         if ids:
             for row in session.exec(select(model).where(model.user_id.in_(ids))).all():  # type: ignore[union-attr]
                 session.delete(row)
+    if ids:
+        for ev in session.exec(select(CommunityEvent).where(CommunityEvent.created_by.in_(ids))).all():  # type: ignore[union-attr]
+            session.delete(ev)
     for w in session.exec(select(Warning).where(Warning.source == SEED_SOURCE)).all():
         session.delete(w)
     for u in users:
@@ -128,6 +159,14 @@ def seed(session: Session = Depends(get_session)):
     for t in trips:
         session.add(t)
     session.commit()
+
+    social.create_event(
+        session, biju, title="Monsoon safety meeting", kind="safety_drill", place_name="Muthalapozhi harbour shed",
+        description="Coast Guard volunteers show life-jacket checks and how to use SOS. Tea provided.",
+        lat=8.637, lon=76.776, starts_at=now + timedelta(days=2, hours=3),
+    )
+    social.post_message(session, selvan, "harbour", "Harbour mouth was choppy at 6, calmer now.")
+    social.post_message(session, biju, "harbour", "Anyone going out tomorrow early? Planning 5 to 11.")
 
     return {
         "users": [{"id": u.id, "name": u.name, "token": u.token, "home_name": u.home_name, "boat_type": u.boat_type} for u in users],

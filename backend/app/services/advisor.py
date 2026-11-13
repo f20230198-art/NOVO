@@ -18,13 +18,13 @@ from sqlmodel import Session
 from ..config import settings
 from ..templates import explanations as tx
 from ..thresholds import THRESHOLDS
-from . import community, forecast, risk_engine
+from . import community, forecast, llm, risk_engine
 from .risk_engine import HourRisk
 
 log = logging.getLogger("seasafe.advisor")
 
 MODEL = "claude-opus-5-5"
-AI_TIMEOUT_S = 20.0
+AI_TIMEOUT_S = 10.0  # a fisher holding a phone will not wait longer; the template answers instantly
 
 SYSTEM_PROMPT = """You are the voice of Sea Safe, a sea-safety assistant for small-scale fishers. Your reply is \
 read aloud on a phone to a fisher deciding whether to take their boat out, so it has to be short, plain and \
@@ -43,7 +43,9 @@ Write `answer` as 2 to 4 short sentences in the requested language. State that d
 verdict word listed for the language, then the safe window and the return-by time if there is one, then the \
 main reason with its numbers. If the verdict is UNSAFE, tell them clearly not to go. If the day has a safe \
 window but a specific hour they asked about is worse, say so. Mention official warnings and nearby fisher \
-reports when present. Use everyday words a fisher would use, no technical jargon. End `answer` with the \
+reports when present. Say the times exactly as they are written in safe_window and return_by, and give each reason in the words \
+of its text. Use everyday words a fisher would use, no technical jargon, and never mention field names or \
+level codes from the data. End `answer` with the \
 advisory line given for the language, word for word.
 
 Write `short_answer` in the same language, under 12 words: the verdict word and the single most useful fact. \
@@ -83,10 +85,30 @@ def contradicts(answer: str, verdict: str, language: str) -> bool:
     if not any(k in text for k in _MUST_HAVE[language][verdict]):
         return True
     if verdict == "SAFE":
+        if language == "en" and not _EN_BARE_SAFE.search(text):
+            return True  # only "unsafe" / "not safe" was said
+        if language == "ml" and "സുരക്ഷിതമല്ല" in text:
+            return True  # "not safe"
         return any(k in text for k in _DO_NOT_GO[language])
     if language == "en":
         return bool(_EN_BARE_SAFE.search(text))
     return "സുരക്ഷിതം" in text or "സുരക്ഷിതമാണ്" in text
+
+
+def misses_return_time(answer: str, window: Optional[dict]) -> bool:
+    """True when there is a return-by time and the text does not state it.
+
+    The verdict word alone is not enough: a wrong return time is as dangerous as a wrong
+    verdict. Accepts 24-hour ("13:30") and 12-hour ("1:30", "1.30") spellings.
+    """
+    if not window:
+        return False
+    rb: datetime = window["return_by"]
+    h12 = rb.hour % 12 or 12
+    spellings = {f"{rb.hour}:{rb.minute:02d}", f"{rb.hour:02d}:{rb.minute:02d}", f"{h12}:{rb.minute:02d}", f"{h12}.{rb.minute:02d}"}
+    if rb.minute == 0:
+        return re.search(rf"(?<![\d:.]){h12}(?![\d:.])|(?<![\d:.]){rb.hour}(?![\d:.])", answer) is None
+    return not any(s in answer for s in spellings)
 
 
 async def compute(session: Session, lat: float, lon: float, boat: str, days: int = 3) -> dict:
@@ -99,16 +121,19 @@ async def compute(session: Session, lat: float, lon: float, boat: str, days: int
 
     warnings = community.active_warnings(session, lat, lon, include_upcoming_hours=days * 24)
     reports = [r for r, _ in community.nearby_reports(session, lat, lon, THRESHOLDS["report_radius_km"])]
+    # A forecast that could not be refreshed for too long is treated as unknown, not as calm.
+    too_old = bool(fc.get("stale")) and fc.get("age_minutes", 0) > THRESHOLDS.get("stale_forecast_minutes", 180)
     hours = risk_engine.evaluate_range(
         rows, boat, THRESHOLDS,
         [community.warning_for_engine(w) for w in warnings],
         [community.report_for_engine(r) for r in reports],
         point=(lat, lon),
+        data_stale=too_old,
     )
     summaries = [risk_engine.day_summary(hours, d, now) for d in dates]
     return {
         "fc": fc, "tz": tz, "now": now, "dates": dates, "rows": rows, "hours": hours, "days": summaries,
-        "warnings": warnings, "reports": reports, "boat": boat, "lat": lat, "lon": lon,
+        "warnings": warnings, "reports": reports, "boat": boat, "lat": lat, "lon": lon, "too_old": too_old,
     }
 
 
@@ -196,6 +221,7 @@ def forecast_payload(ctx: dict, language: str, session: Session) -> dict:
             [community.warning_for_engine(w) for w in ctx["warnings"]],
             [community.report_for_engine(r) for r in ctx["reports"]],
             point=(ctx["lat"], ctx["lon"]),
+            data_stale=ctx.get("too_old", False),
         ),
         n_days=7, now=ctx["now"],
     )
@@ -207,6 +233,7 @@ def forecast_payload(ctx: dict, language: str, session: Session) -> dict:
         "fetched_at": fc["fetched_at"].isoformat(),
         "utc_offset_seconds": fc["utc_offset_seconds"],
         "stale": bool(fc.get("stale")),
+        "age_minutes": fc.get("age_minutes", 0),
         "scenario": fc.get("scenario", "real"),
         "days": [_day_out(ctx, i, language) for i in range(len(ctx["days"]))],
         "hourly": _hourly_out(ctx, language),
@@ -241,6 +268,23 @@ def _level_ranges(hours: list[HourRisk]) -> str:
 
 def _prompt_data(ctx: dict, question: str, language: str, location_name: str) -> str:
     lang = tx.lang_of(language)
+    data = {
+        "question": question,
+        "reply_language": LANGUAGE_NAMES.get(language, "English"),
+        "verdict_words_to_use": tx.VERDICT_WORD[lang],
+        "advisory_line": tx.ADVISORY[lang],
+        "boat_type": ctx["boat"],
+        "location": location_name or f"{ctx['lat']:.3f}, {ctx['lon']:.3f}",
+        "local_time_now": ctx["now"].strftime("%Y-%m-%d %H:%M"),
+        "days": engine_days(ctx, lang),
+        "official_warnings": [{"title": w.title, "message": w.message, "source": w.source} for w in ctx["warnings"]],
+        "fisher_reports_nearby": [{"type": r.type, "note": r.note, "up": r.up, "down": r.down} for r in ctx["reports"]],
+    }
+    return json.dumps(data, ensure_ascii=False)
+
+
+def engine_days(ctx: dict, lang: str) -> list[dict]:
+    """The risk engine's per-day facts, worded for the model to repeat rather than reinterpret."""
     days = []
     for i, day in enumerate(ctx["days"]):
         d = ctx["dates"][i]
@@ -255,31 +299,19 @@ def _prompt_data(ctx: dict, question: str, language: str, location_name: str) ->
                 "date": d.isoformat(),
                 "weekday": d.strftime("%A"),
                 "verdict": day["verdict"],
-                "safe_window": f"{w['start'].strftime('%H:%M')} to {w['end'].strftime('%H:%M')}" if w else None,
-                "return_by": w["return_by"].strftime("%H:%M") if w else None,
+                # Times and reasons are given already worded in the fisher's language, so the
+                # model repeats them instead of inventing its own format or quoting field names.
+                "safe_window": {"from": tx.fmt_time(w["start"], lang), "until": tx.fmt_time(w["end"], lang)} if w else None,
+                "return_by": tx.fmt_time(w["return_by"], lang) if w else None,
+                "reasons_apply_to": "the hours outside the safe window" if w else "the whole day",
                 "confidence": _day_confidence(ctx, i),
-                "reasons": [
-                    {k: v for k, v in r.to_dict().items() if k != "text_key" and v not in (None, "")}
-                    for r in day["reasons"]
-                ],
+                "reasons": [{"level": r.level, "text": tx.reason_text(r, lang)} for r in day["reasons"]],
                 "hourly_levels_24h": _level_ranges(todays),
                 "wave_height_m_min_max": [min(waves), max(waves)] if waves else None,
                 "wind_gust_kmh_max": max(gusts) if gusts else None,
             }
         )
-    data = {
-        "question": question,
-        "reply_language": LANGUAGE_NAMES.get(language, "English"),
-        "verdict_words_to_use": tx.VERDICT_WORD[lang],
-        "advisory_line": tx.ADVISORY[lang],
-        "boat_type": ctx["boat"],
-        "location": location_name or f"{ctx['lat']:.3f}, {ctx['lon']:.3f}",
-        "local_time_now": ctx["now"].strftime("%Y-%m-%d %H:%M"),
-        "days": days,
-        "official_warnings": [{"title": w.title, "message": w.message, "source": w.source} for w in ctx["warnings"]],
-        "fisher_reports_nearby": [{"type": r.type, "note": r.note, "up": r.up, "down": r.down} for r in ctx["reports"]],
-    }
-    return json.dumps(data, ensure_ascii=False)
+    return days
 
 
 async def _ask_claude(ctx: dict, question: str, language: str, location_name: str) -> Optional[dict]:
@@ -326,18 +358,71 @@ async def _ask_claude(ctx: dict, question: str, language: str, location_name: st
     return None
 
 
+JSON_INSTRUCTION = (
+    "\n\nReply with one JSON object and nothing else, with exactly these keys: "
+    '"day_index" (0, 1 or 2), "start_hour" (a number from 0 to 23, or null), '
+    '"answer" (string), "short_answer" (string).'
+)
+
+
+def llm_provider() -> str:
+    """Which model words the answer: "claude", "pool" (rotating Groq/Gemini keys), or "" for templates."""
+    if settings.anthropic_api_key:
+        return "claude"
+    if llm.available():
+        return "pool"
+    return ""
+
+
+def provider_label() -> str:
+    p = llm_provider()
+    if p == "pool":
+        return f"{len(llm.pool())} rotating key(s): " + ", ".join(k.label for k in llm.pool().keys)
+    return p
+
+
+async def _ask_pool(ctx: dict, question: str, language: str, location_name: str) -> Optional[dict]:
+    """One call through the rotating key pool. The full context goes with every attempt."""
+    try:
+        data = await llm.chat_json(
+            [
+                {"role": "system", "content": SYSTEM_PROMPT + JSON_INSTRUCTION},
+                {"role": "user", "content": _prompt_data(ctx, question, language, location_name)},
+            ],
+            deadline_s=AI_TIMEOUT_S,
+        )
+    except Exception as exc:  # the demo must never break because of the LLM
+        log.warning("advisor: pool call failed: %s", exc)
+        return None
+    if not data or data.get("day_index") not in (0, 1, 2) or not str(data.get("answer") or "").strip():
+        return None
+    return data
+
+
+async def _ask_llm(ctx: dict, question: str, language: str, location_name: str) -> Optional[dict]:
+    provider = llm_provider()
+    if provider == "claude":
+        return await _ask_claude(ctx, question, language, location_name)
+    if provider == "pool":
+        return await _ask_pool(ctx, question, language, location_name)
+    return None
+
+
 async def ask(session: Session, question: str, language: str, lat: float, lon: float, boat: str, location_name: str = "") -> dict:
     ctx = await compute(session, lat, lon, boat, days=3)
     payload = forecast_payload(ctx, language, session)
 
     source = "template"
     start_hour = None
-    ai = await _ask_claude(ctx, question, language, location_name)
+    ai = await _ask_llm(ctx, question, language, location_name)
     if ai is not None:
         day_index = min(ai["day_index"], len(ctx["days"]) - 1)
         verdict = ctx["days"][day_index]["verdict"]
         if contradicts(ai["answer"], verdict, language):
             log.warning("advisor: model answer contradicts engine verdict %s, using template", verdict)
+            ai = None
+        elif verdict == "SAFE" and misses_return_time(ai["answer"], ctx["days"][day_index]["window"]):
+            log.warning("advisor: model answer leaves out or changes the return-by time, using template")
             ai = None
         else:
             source = "ai"

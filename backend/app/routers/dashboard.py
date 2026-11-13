@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,8 +7,10 @@ from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
 from ..db import get_session, iso_utc, utcnow
-from ..models import Trip, User
+from ..deps import require_admin
+from ..models import ChatMessage, CommunityEvent, Trip, User
 from ..services import advisor as advisor_service
+from ..services import escalation, social
 from ..services.monitor import trip_position
 
 router = APIRouter(tags=["dashboard"])
@@ -23,9 +26,13 @@ def dashboard_page():
     return FileResponse(DASHBOARD_FILE, media_type="text/html")
 
 
-@router.get("/dashboard/trips")
+@router.get("/dashboard/trips", dependencies=[Depends(require_admin)])
 async def dashboard_trips(session: Session = Depends(get_session)):
-    """Every boat currently out (active, overdue or emergency) with the sea level at its position."""
+    """Every boat currently out (active, overdue or emergency) with the sea level at its position.
+
+    Admin key required: live positions and phone numbers are private, and a boat's
+    position gives away its fishing ground.
+    """
     trips = session.exec(select(Trip).where(Trip.status.in_(("active", "overdue", "emergency")))).all()  # type: ignore[union-attr]
     out = []
     for trip in trips:
@@ -49,6 +56,21 @@ async def dashboard_trips(session: Session = Depends(get_session)):
                 "grace_minutes": trip.grace_minutes, "last_ping_at": iso_utc(trip.last_ping_at),
                 "minutes_late": max(0, int((utcnow() - trip.planned_return).total_seconds() // 60)),
                 "level": level, "wave_height": waves, "wind_speed": wind,
+                "max_offshore_km": round(trip.max_offshore_km or 0.0, 1),
+                "auto_sos_at": iso_utc(escalation.auto_sos_at(trip.planned_return, trip.grace_minutes, user.boat_type)),
             }
         )
     return out
+
+
+@router.get("/dashboard/community", dependencies=[Depends(require_admin)])
+def dashboard_community(session: Session = Depends(get_session)):
+    """Recent chat (for moderation, including hidden messages) and upcoming events, everywhere."""
+    rows = session.exec(select(ChatMessage).order_by(ChatMessage.id.desc()).limit(40)).all()  # type: ignore[union-attr]
+    names: dict[int, str] = {}
+    messages = [{**social.message_out(session, m, None, names), "hidden": m.hidden, "flags": m.flags} for m in rows]
+    events = session.exec(
+        select(CommunityEvent).where(CommunityEvent.starts_at > utcnow() - timedelta(hours=6), CommunityEvent.cancelled == False)  # noqa: E712
+        .order_by(CommunityEvent.starts_at)  # type: ignore[arg-type]
+    ).all()
+    return {"messages": messages, "events": [social.event_out(session, e, None) for e in events]}

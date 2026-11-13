@@ -27,7 +27,7 @@ SEA_STATE_REPORT_TYPES = {"rough_sea", "storm", "harbour_mouth_rough"}
 # Tie-break when several reasons share a level: which one to mention first.
 FACTOR_PRIORITY = [
     "official_warning", "weather_code", "wave_height", "wind_gust", "wind_speed",
-    "wave_period", "precipitation", "community_reports", "night", "data_missing",
+    "wave_period", "precipitation", "community_reports", "night", "data_missing", "data_stale",
 ]
 
 
@@ -91,10 +91,15 @@ def evaluate_hour(
     warnings: Optional[list[dict]] = None,
     reports: Optional[list[dict]] = None,
     point: Optional[tuple[float, float]] = None,
+    data_stale: bool = False,
 ) -> HourRisk:
     th = thresholds[boat]
     t: datetime = row["time"]
     reasons: list[Reason] = []
+
+    # An old forecast is not evidence of a calm sea: never call it SAFE.
+    if data_stale:
+        reasons.append(Reason("data_stale", None, "", None, CAUTION, "data_stale"))
 
     wave = row.get("wave_height")
     period = row.get("wave_period")
@@ -151,7 +156,10 @@ def evaluate_hour(
             )
             break
 
-    # Community reports: raise to CAUTION at most, however many there are.
+    # Community reports: raise to CAUTION at most, however many there are, and only once
+    # someone else backs them up. One unconfirmed report is shown but changes nothing,
+    # so a single fisher cannot keep the others ashore with a made-up hazard.
+    need = int(thresholds.get("report_min_confirmations", 0))
     radius = thresholds["report_radius_km"]
     risk_types = set(thresholds.get("risk_report_types") or [])
     relevant = []
@@ -168,8 +176,19 @@ def evaluate_hour(
     if relevant:
         types = sorted({r["type"] for r in relevant})
         sea_state = sum(1 for r in relevant if r["type"] in SEA_STATE_REPORT_TYPES)
-        key = "reports_rough" if sea_state >= 2 else "reports"
-        reasons.append(Reason("community_reports", float(len(relevant)), "reports", 1, CAUTION, key, detail=",".join(types)))
+        reporters = {r.get("user_id") for r in relevant if r.get("user_id") is not None}
+        confirmed = (
+            need <= 0
+            or len(reporters) >= 2
+            or any(r.get("up", 0) - r.get("down", 0) >= need for r in relevant)
+        )
+        if confirmed:
+            key = "reports_rough" if sea_state >= 2 else "reports"
+            reasons.append(Reason("community_reports", float(len(relevant)), "reports", 1, CAUTION, key, detail=",".join(types)))
+        else:
+            reasons.append(
+                Reason("community_reports", float(len(relevant)), "reports", 1, SAFE, "reports_unconfirmed", detail=",".join(types))
+            )
 
     level = max_level(SAFE, *[r.level for r in reasons])
     reasons.sort(key=lambda r: -LEVEL_ORDER[r.level])
@@ -183,8 +202,9 @@ def evaluate_range(
     warnings: Optional[list[dict]] = None,
     reports: Optional[list[dict]] = None,
     point: Optional[tuple[float, float]] = None,
+    data_stale: bool = False,
 ) -> list[HourRisk]:
-    return [evaluate_hour(r, boat, thresholds, warnings, reports, point) for r in rows]
+    return [evaluate_hour(r, boat, thresholds, warnings, reports, point, data_stale) for r in rows]
 
 
 def _day_hours(hours: list[HourRisk], day: date, now: Optional[datetime] = None) -> list[HourRisk]:
@@ -322,6 +342,7 @@ def trip_check(hours: list[HourRisk], now: datetime, planned_return: Optional[da
         end = planned_return
     span = [h for h in hours if h.time + timedelta(hours=1) > now and h.time < end]
     if not span:
-        return {"level": SAFE, "reasons": [], "hours": 0}
+        # No forecast for the next two hours: unknown is never SAFE.
+        return {"level": CAUTION, "reasons": [Reason("data_missing", None, "", None, CAUTION, "data_missing")], "hours": 0}
     level = max_level(*[h.level for h in span])
     return {"level": level, "reasons": main_reasons([h for h in span if h.level != SAFE]), "hours": len(span)}

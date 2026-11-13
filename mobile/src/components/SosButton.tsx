@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
-import { sendSos } from '../lib/sos';
+import { callCoastGuard, sendSos } from '../lib/sos';
 import { useApp } from '../lib/store';
 import { colors } from '../lib/theme';
 
@@ -19,9 +19,11 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
  * opens with the location. Releasing early cancels.
  */
 export function SosButton({ bottom = 96 }: { bottom?: number }) {
-  const { profile, contacts, t } = useApp();
+  const { profile, contacts, trip, t } = useApp();
   const progress = useRef(new Animated.Value(0)).current;
   const [holding, setHolding] = useState(false);
+  // After an SOS, a one-tap call to the Coast Guard stays on screen.
+  const [showCall, setShowCall] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -55,7 +57,10 @@ export function SosButton({ bottom = 96 }: { bottom?: number }) {
       progress.setValue(0);
       Vibration.vibrate([0, 300, 150, 300]);
       flash(t('sosSending'), 15000);
-      sendSos(profile, contacts, t).then((result) => flash(result === 'opened' ? t('sosOpened') : t('sosNoSms'), 8000));
+      setShowCall(true);
+      sendSos(profile, contacts, t, trip).then((result) =>
+        flash(result === 'opened' ? t('sosOpened') : result === 'no-contacts' ? t('sosNoContacts') : t('sosNoSms'), 12000),
+      );
     });
   };
 
@@ -75,6 +80,11 @@ export function SosButton({ bottom = 96 }: { bottom?: number }) {
         <View style={styles.bubble}>
           <Text style={styles.bubbleText}>{message}</Text>
         </View>
+      ) : null}
+      {showCall ? (
+        <Pressable onPress={callCoastGuard} accessibilityRole="button" accessibilityLabel={t('callCoastGuard')} style={styles.call}>
+          <Text style={styles.callText}>📞 {t('callCoastGuard')}</Text>
+        </Pressable>
       ) : null}
       <Pressable
         onPressIn={begin}
@@ -117,6 +127,18 @@ const styles = StyleSheet.create({
     maxWidth: 240,
   },
   bubbleText: { color: colors.white, fontSize: 15, fontWeight: '700' },
+  call: {
+    backgroundColor: colors.white,
+    borderColor: colors.unsafe,
+    borderWidth: 3,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    minHeight: 56,
+    justifyContent: 'center',
+    marginBottom: 8,
+    elevation: 6,
+  },
+  callText: { color: colors.unsafe, fontSize: 18, fontWeight: '900' },
   button: {
     width: SIZE,
     height: SIZE,

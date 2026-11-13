@@ -30,6 +30,39 @@ export async function getPosition(fallback: Point | null, timeoutMs = 6000): Pro
   return fallback;
 }
 
+export type Fix = { point: Point; fresh: boolean; at: Date };
+
+const FRESH_MS = 3 * 60 * 1000;
+
+/**
+ * Position for SOS, with how much it can be trusted. `fresh` is a GPS fix from the last
+ * few minutes; otherwise it is the phone's last known position and `at` says how old.
+ * Null when the phone has no position at all. Never falls back to the home harbour:
+ * a rescuer must not be sent there by mistake.
+ */
+export async function getFix(timeoutMs = 6000): Promise<Fix | null> {
+  try {
+    let perm = await Location.getForegroundPermissionsAsync();
+    if (!perm.granted && perm.canAskAgain) perm = await Location.requestForegroundPermissionsAsync();
+    if (!perm.granted) return null;
+
+    const fresh = await withTimeout(
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+      timeoutMs,
+    ).catch(() => null);
+    if (fresh) return { point: { lat: fresh.coords.latitude, lon: fresh.coords.longitude }, fresh: true, at: new Date(fresh.timestamp) };
+
+    const last = await Location.getLastKnownPositionAsync().catch(() => null);
+    if (last) {
+      const at = new Date(last.timestamp);
+      return { point: { lat: last.coords.latitude, lon: last.coords.longitude }, fresh: Date.now() - at.getTime() < FRESH_MS, at };
+    }
+  } catch {
+    // no position
+  }
+  return null;
+}
+
 const NEAR_HOME_KM = 100;
 
 /**

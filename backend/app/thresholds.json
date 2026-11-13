@@ -6,7 +6,16 @@
   "heavy_rain_mm": 7.5,
   "thunderstorm_codes": [95, 96, 99],
   "report_radius_km": 10,
+  "report_min_confirmations": 1,
+  "stale_forecast_minutes": 180,
   "risk_report_types": ["rough_sea", "storm", "harbour_mouth_rough", "strong_current", "debris", "oil_spill", "boat_in_trouble"],
   "warning_overrides": true,
+  "escalation": {
+    "offshore_km": 2.0,
+    "signal_silent_minutes": 60,
+    "auto_sos_minutes_after_overdue": {"non_motorised": 90, "motorised": 120, "mechanised": 180},
+    "trip_reminder_minutes_before": 60,
+    "_note": "Auto-SOS fires only when the trip is overdue (return time + grace), a further auto_sos_minutes_after_overdue has passed, the boat went more than offshore_km out, and the phone has either been silent for signal_silent_minutes or is still reporting from offshore. Adding time ('More time') moves every step back."
+  },
   "_sources": "Starting values based on the Beaufort scale and the WMO sea-state table; to be validated with fishers."
 }

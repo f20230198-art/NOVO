@@ -69,6 +69,36 @@ export async function registerForPush(): Promise<string | null> {
   }
 }
 
+/**
+ * Queue a notification on the phone for a later time. It fires with no signal and with the
+ * app closed, which is what makes "head back" and "are you back?" work out at sea.
+ * Returns an id for cancelNotification, or null when it could not be queued.
+ */
+export async function notifyAt(when: Date, title: string, body: string): Promise<string | null> {
+  if (when.getTime() <= Date.now() + 5000) return null;
+  const N = await configure();
+  if (!N) return null;
+  try {
+    return await N.scheduleNotificationAsync({
+      content: { title, body, sound: true },
+      trigger: { type: N.SchedulableTriggerInputTypes.DATE, date: when, channelId: 'alerts' },
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function cancelNotification(id: string | null | undefined): Promise<void> {
+  if (!id) return;
+  const N = load();
+  if (!N) return;
+  try {
+    await N.cancelScheduledNotificationAsync(id);
+  } catch {
+    // already fired or cancelled
+  }
+}
+
 /** Show a notification from the app itself (used when the trip poll finds a new alert). */
 export async function notifyLocal(title: string, body: string): Promise<void> {
   const N = await configure();

@@ -12,6 +12,7 @@ from app.main import app
 from app.services import advisor, forecast, monitor
 
 MUTHALAPOZHI = {"lat": 8.635, "lon": 76.775}
+ADMIN = {"X-Admin-Key": "test-admin"}
 
 
 @pytest.fixture()
@@ -90,26 +91,79 @@ def test_full_trip_flow_register_ask_start_overdue(client):
     result = asyncio.run(monitor.tick())
     assert result["overdue"] == 1
     assert client.get(f"/trips/{trip['id']}", headers=headers).json()["status"] == "overdue"
+    alerts = client.get("/alerts", headers=headers).json()
+    assert [a["kind"] for a in alerts] == ["overdue_check"]  # the fisher is asked first, the family not yet
 
-    alerts = client.get("/alerts", params={"user_id": user_id}).json()
+    # After the contact delay (at most 30 min) the family is told.
+    later = monitor.utcnow() + timedelta(minutes=31)
+    asyncio.run(monitor.tick(now=later))
+    alerts = client.get("/alerts", headers=headers).json()
+    assert len([a for a in alerts if a["kind"] == "overdue_check"]) == 1
     overdue = [a for a in alerts if a["kind"] == "overdue"]
     assert len(overdue) == 2  # one to the contact, one to the fisher
     to_contact = next(a for a in overdue if "Mary" in a["recipient"])
     assert to_contact["channel"] == "simulated"
-    assert "Biju has not returned" in to_contact["message"]
+    assert "Biju has not returned" in to_contact["message"] and "Last seen at" in to_contact["message"]
     assert "https://maps.google.com/?q=8.60000,76.70000" in to_contact["message"]
-    assert any(a["kind"] == "overdue" for a in client.get("/alerts/recent").json())
+
+    # Alerts are private: no listing another user's, and the feed needs the admin key.
+    assert client.get("/alerts", params={"user_id": user_id}).status_code == 401
+    assert client.get("/alerts/recent").status_code == 403
+    assert any(a["kind"] == "overdue" for a in client.get("/alerts/recent", headers=ADMIN).json())
 
     # Sent once only
-    asyncio.run(monitor.tick())
-    again = [a for a in client.get("/alerts", headers=headers).json() if a["kind"] == "overdue"]
-    assert len(again) == 2
+    asyncio.run(monitor.tick(now=later + timedelta(minutes=5)))
+    again = [a for a in client.get("/alerts", headers=headers).json() if a["kind"] in ("overdue", "overdue_check")]
+    assert len(again) == 3
 
-    # The dashboard sees the boat, and "I'm back" closes the trip
-    boats = client.get("/dashboard/trips").json()
+    # The dashboard (admin key only) sees the boat, and "I'm back" closes the trip
+    assert client.get("/dashboard/trips").status_code == 403
+    boats = client.get("/dashboard/trips", headers=ADMIN).json()
     assert any(b["id"] == trip["id"] and b["status"] == "overdue" for b in boats)
-    assert client.post(f"/trips/{trip['id']}/end", headers=headers).json()["status"] == "returned"
+    ended = client.post(f"/trips/{trip['id']}/end", headers=headers).json()
+    assert ended["status"] == "returned"
     assert client.get("/trips/active", headers=headers).json()["trip"] is None
+
+    # The family was alerted, so they are also told he is back.
+    clear = [a for a in client.get("/alerts", headers=headers).json() if a["kind"] == "all_clear"]
+    assert len(clear) == 1 and "back safely" in clear[0]["message"]
+
+
+def test_overdue_asks_the_fisher_before_the_family(client, monkeypatch):
+    from app.services import escalation
+
+    monkeypatch.setattr(escalation, "contact_delay_minutes", lambda *args: 15)
+    _, headers = register(client)
+    planned = (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat()
+    trip = client.post("/trips/start", headers=headers, json={"planned_return": planned, **MUTHALAPOZHI}).json()
+    assert trip["contacts_alerted"] is False
+
+    def kinds():
+        return sorted(a["kind"] for a in client.get("/alerts", headers=headers).json())
+
+    # Just overdue: only the fisher hears about it.
+    client.post(f"/demo/trips/{trip['id']}/fast-forward")
+    asyncio.run(monitor.tick())
+    now_trip = client.get(f"/trips/{trip['id']}", headers=headers).json()
+    assert now_trip["status"] == "overdue" and now_trip["contacts_alerted"] is False
+    assert kinds() == ["overdue_check"]
+
+    # "More time" answers the check: the trip is active again and nobody was worried.
+    more = client.post(f"/trips/{trip['id']}/extend", headers=headers, json={"minutes": 30}).json()
+    assert more["status"] == "active" and kinds() == ["overdue_check"]
+    asyncio.run(monitor.tick())
+    assert kinds() == ["overdue_check"]
+
+    # No answer for longer than the delay: now the family is told.
+    client.post(f"/demo/trips/{trip['id']}/fast-forward")
+    asyncio.run(monitor.tick(datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=16)))
+    assert kinds().count("overdue") == 2
+    assert client.get(f"/trips/{trip['id']}", headers=headers).json()["contacts_alerted"] is True
+
+    # Adding time after that tells the family he is OK.
+    client.post(f"/trips/{trip['id']}/extend", headers=headers, json={"minutes": 60})
+    assert "extended" in kinds()
+    client.post(f"/trips/{trip['id']}/end", headers=headers)
 
 
 def test_storm_scenario_makes_verdict_unsafe(client):
@@ -151,7 +205,9 @@ def test_malayalam_template_answer(client):
 
 def test_reports_create_vote_expiry_and_risk(client):
     _, headers = register(client, boat="mechanised")
-    assert client.post("/reports", json={"type": "sea_monster", **MUTHALAPOZHI}).status_code == 422
+    voters = [register(client, name=f"Voter {i}")[1] for i in range(4)]
+    assert client.post("/reports", json={"type": "debris", **MUTHALAPOZHI}).status_code == 401  # must be registered
+    assert client.post("/reports", headers=headers, json={"type": "sea_monster", **MUTHALAPOZHI}).status_code == 422
 
     report = client.post(
         "/reports", headers=headers, json={"type": "harbour_mouth_rough", "note": "Breaking at the mouth", "anonymous": False, **MUTHALAPOZHI}
@@ -165,21 +221,48 @@ def test_reports_create_vote_expiry_and_risk(client):
     assert [r["id"] for r in nearby] == [report["id"]] and nearby[0]["distance_km"] == 0
     assert client.get("/reports", params={"lat": 25.13, "lon": 56.36}).json() == []
 
-    # The report feeds the risk engine: calm sea, big boat, but now CAUTION for the hours it covers.
+    # One unconfirmed report is listed and explained, but does not change the verdict.
+    fc = client.get("/advisor/forecast", headers=headers).json()
+    assert fc["current"]["level"] == "SAFE" and len(fc["reports_nearby"]) == 1
+    assert any(r["text_key"] == "reports_unconfirmed" for r in fc["current"]["reasons"])
+
+    # Votes need a registered fisher, not the reporter, and count once per fisher.
+    vote_url = f"/reports/{report['id']}/vote"
+    assert client.post(vote_url, json={"dir": "up"}).status_code == 401
+    assert client.post(vote_url, headers=headers, json={"dir": "up"}).status_code == 403
+    assert client.post(vote_url, headers=voters[0], json={"dir": "up"}).json()["up"] == 1
+    assert client.post(vote_url, headers=voters[0], json={"dir": "up"}).json()["up"] == 1  # same vote again: no change
+
+    # Confirmed by another fisher: calm sea, big boat, but now CAUTION for the hours it covers.
     fc = client.get("/advisor/forecast", headers=headers).json()
     assert fc["current"]["level"] == "CAUTION"
-    assert any(r["factor"] == "community_reports" for r in fc["current"]["reasons"])
-    assert len(fc["reports_nearby"]) == 1
+    assert any(r["factor"] == "community_reports" and r["level"] == "CAUTION" for r in fc["current"]["reasons"])
     assert fc["days"][2]["verdict"] == "SAFE"  # expired long before the day after tomorrow
 
-    # Votes: one down-vote stops it counting towards risk; three hide it.
-    assert client.post(f"/reports/{report['id']}/vote", json={"dir": "up"}).json()["up"] == 1
-    for _ in range(4):
-        last = client.post(f"/reports/{report['id']}/vote", json={"dir": "down"}).json()
+    # A fisher can change their mind; it takes three more people than supporters to hide a report.
+    switched = client.post(vote_url, headers=voters[0], json={"dir": "down"}).json()
+    assert switched["up"] == 0 and switched["down"] == 1 and switched["hidden"] is False
+    for voter in voters[1:]:
+        last = client.post(vote_url, headers=voter, json={"dir": "down"}).json()
     assert last["down"] == 4 and last["hidden"] is True
     assert client.get("/reports", params=MUTHALAPOZHI).json() == []
     assert client.get("/advisor/forecast", headers=headers).json()["current"]["level"] == "SAFE"
-    assert client.post("/reports/999999/vote", json={"dir": "up"}).status_code == 404
+    assert client.post("/reports/999999/vote", headers=voters[0], json={"dir": "up"}).status_code == 404
+
+    # A call for help cannot be voted out of sight, and its position is exact.
+    help_call = client.post("/reports", headers=headers, json={"type": "boat_in_trouble", "lat": 8.63512, "lon": 76.77534}).json()
+    assert (help_call["lat"], help_call["lon"]) == (8.63512, 76.77534)
+    for voter in voters:
+        still = client.post(f"/reports/{help_call['id']}/vote", headers=voter, json={"dir": "down"}).json()
+    assert still["hidden"] is False
+
+    # Other positions are rounded so a report does not give away the reporter's fishing spot.
+    catch = client.post("/reports", headers=headers, json={"type": "no_fish", "lat": 8.63512, "lon": 76.77534}).json()
+    assert (catch["lat"], catch["lon"]) == (8.6, 76.8)
+
+    # Flood limit: five reports an hour per fisher.
+    spam = [client.post("/reports", headers=voters[3], json={"type": "debris", "lat": 20.0, "lon": 60.0}).status_code for _ in range(6)]
+    assert spam == [200] * 5 + [429]
 
     # Expiry: a report whose time has passed is no longer listed.
     from sqlmodel import Session
@@ -248,7 +331,7 @@ def test_seed_and_dashboard(client):
     assert len(seeded["users"]) == 4 and len(seeded["reports"]) == 3 and len(seeded["trips"]) == 2
     again = client.post("/demo/seed").json()  # idempotent
     assert len(again["users"]) == 4
-    boats = client.get("/dashboard/trips").json()
+    boats = client.get("/dashboard/trips", headers=ADMIN).json()
     assert {b["name"] for b in boats} >= {"Selvan", "Antony"}
     assert client.get("/warnings/active", params={"lat": 25.13, "lon": 56.36}).json()[0]["source"] == "Demo seed"
     page = client.get("/dashboard")
@@ -265,3 +348,114 @@ def test_answer_consistency_check():
     assert advisor.contradicts("നാളെ കടൽ സുരക്ഷിതം.", "UNSAFE", "ml") is True
     assert advisor.contradicts("നാളെ കടലിൽ പോകുന്നത് അപകടം. കടലിൽ പോകരുത്.", "UNSAFE", "ml") is False
     assert advisor.contradicts("നാളെ സുരക്ഷിതം.", "SAFE", "ml") is False
+    assert advisor.contradicts("നാളെ കടൽ സുരക്ഷിതമല്ല.", "SAFE", "ml") is True
+    assert advisor.contradicts("Tomorrow is unsafe.", "SAFE", "en") is True
+
+
+def test_answer_must_state_the_return_time():
+    window = {"return_by": datetime(2026, 11, 13, 10, 30)}
+    assert advisor.misses_return_time("Safe from 4 AM. Come back by 10:30 AM.", window) is False
+    assert advisor.misses_return_time("രാവിലെ 10.30-ന് മുമ്പ് തിരിച്ചെത്തുക.", window) is False
+    assert advisor.misses_return_time("Safe from 4 AM. Come back by 11:30 AM.", window) is True
+    assert advisor.misses_return_time("Safe all morning.", window) is True
+    assert advisor.misses_return_time("Come back by 13:30.", {"return_by": datetime(2026, 11, 13, 13, 30)}) is False
+    assert advisor.misses_return_time("Come back by 1:30 PM.", {"return_by": datetime(2026, 11, 13, 13, 30)}) is False
+    assert advisor.misses_return_time("Do not go.", None) is False
+
+
+def test_gemini_or_groq_words_the_answer_but_never_the_verdict(client, monkeypatch):
+    from app.config import settings
+
+    _, headers = register(client)
+    template = client.post("/advisor/ask", headers=headers, json={"question": "Can I go out tomorrow?"}).json()
+    return_by = template["window"]["return_by_label"]
+    from app.services import llm
+
+    replies, sent = [], []
+
+    async def fake_post(k, payload, timeout):
+        sent.append((k.url, k.key, k.model))
+        return {"choices": [{"message": {"content": replies.pop(0)}}]}
+
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr(llm, "_post", fake_post)
+    llm.reset_pool()
+    monkeypatch.setattr(llm, "_pool", None)
+    assert client.get("/health").json()["ai_provider"] == "pool"
+
+    # A faithful answer is used as written.
+    replies.append('{"day_index": 1, "start_hour": null, "answer": "Tomorrow is safe, friend. Be back by %s.", "short_answer": "Safe"}' % return_by)
+    good = client.post("/advisor/ask", headers=headers, json={"question": "Can I go out tomorrow?"}).json()
+    assert good["source"] == "ai" and good["answer"].startswith("Tomorrow is safe, friend") and good["verdict"] == "SAFE"
+    assert "generativelanguage.googleapis.com" in sent[0][0] and sent[0][1] == "test-key" and sent[0][2] == "gemini-2.5-flash"
+
+    # One that contradicts the engine, drops the return time, or is not JSON falls back to the template.
+    for bad in (
+        '{"day_index": 1, "start_hour": null, "answer": "Tomorrow is unsafe. Do not go.", "short_answer": "No"}',
+        '{"day_index": 1, "start_hour": null, "answer": "Tomorrow is safe all day.", "short_answer": "Safe"}',
+        "Sure! Tomorrow looks fine.",
+    ):
+        replies.append(bad)
+        out = client.post("/advisor/ask", headers=headers, json={"question": "Can I go out tomorrow?"}).json()
+        assert out["source"] == "template" and out["verdict"] == "SAFE" and out["answer"] == template["answer"]
+
+    # Groq is used when it is the only key, and LLM_MODEL overrides the default model.
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+    monkeypatch.setattr(settings, "groq_api_key", "groq-key")
+    monkeypatch.setattr(settings, "llm_model", "some-other-model")
+    llm.reset_pool()
+    replies.append("{}")
+    client.post("/advisor/ask", headers=headers, json={"question": "Can I go out tomorrow?"})
+    assert "api.groq.com" in sent[-1][0] and sent[-1][2] == "some-other-model"
+    llm.reset_pool()
+
+
+def test_key_pool_rotates_and_resends_the_same_context(monkeypatch):
+    """Each call starts on the next key; a 429 moves the identical messages to the next key."""
+    from app.services import llm
+
+    pool = llm.KeyPool([llm.PoolKey("groq", f"k{i}", f"groq#{i}") for i in range(1, 5)])
+    llm.reset_pool(pool)
+    seen = []
+
+    async def fake_post(k, payload, timeout):
+        seen.append((k.label, payload["messages"]))
+        if k.label == "groq#1":
+            req = httpx.Request("POST", k.url)
+            raise httpx.HTTPStatusError("429", request=req, response=httpx.Response(429, request=req, headers={"retry-after": "20"}))
+        return {"choices": [{"message": {"content": '{"ok": true}'}}]}
+
+    monkeypatch.setattr(llm, "_post", fake_post)
+    messages = [{"role": "system", "content": "rules"}, {"role": "user", "content": "facts + question"}]
+    try:
+        assert asyncio.run(llm.chat_json(messages)) == {"ok": True}
+        # groq#1 was rate limited, groq#2 got exactly the same conversation.
+        assert [s[0] for s in seen] == ["groq#1", "groq#2"] and seen[0][1] == seen[1][1] == messages
+        # Next call starts at the next key in the rotation, and #1 is now cooling down.
+        seen.clear()
+        asyncio.run(llm.chat_json(messages))
+        assert seen[0][0] == "groq#2"
+        seen.clear()
+        asyncio.run(llm.chat_json(messages))
+        assert seen[0][0] == "groq#3"
+        assert pool.keys[0].cooldown_until > 0 and pool.status()[0]["failures"] == 1
+        # Keys never appear in the status output.
+        assert "k1" not in str(pool.status())
+    finally:
+        llm.reset_pool()
+
+
+def test_old_forecast_is_not_called_safe(client):
+    _, headers = register(client, boat="mechanised")
+    assert client.get("/advisor/forecast", headers=headers).json()["days"][1]["verdict"] == "SAFE"
+
+    # The same data, but it could not be refreshed for four hours.
+    key = (round(MUTHALAPOZHI["lat"], 2), round(MUTHALAPOZHI["lon"], 2))
+    old = forecast._synthetic(**MUTHALAPOZHI)
+    old["fetched_at"] = datetime.now(timezone.utc) - timedelta(hours=4)
+    forecast._cache[key] = {"at": 0, "data": old}
+    fc = client.get("/advisor/forecast", headers=headers).json()
+    assert fc["stale"] is True and fc["age_minutes"] >= 240
+    assert fc["days"][1]["verdict"] == "CAUTION" and fc["days"][1]["window"] is None
+    assert any(r["factor"] == "data_stale" for r in fc["days"][1]["reasons"])
+    forecast.clear_cache()

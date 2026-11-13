@@ -12,10 +12,15 @@ Product spec and feature priorities: [SEA-SAFE-PLAN.md](SEA-SAFE-PLAN.md). Read 
 
 ## Non-negotiable design rules
 1. **Rules decide, AI explains.** The SAFE/CAUTION/UNSAFE verdict comes only from `risk_engine.py`, which is pure, deterministic and unit-tested. The LLM never sets or changes a verdict.
-2. **Safety wins.** Official warnings and community hazard reports can only raise risk, never lower it.
-3. **SOS works without the backend.** The app sends SOS via device SMS first; the backend call is best-effort.
-4. **Everything works without API keys.** No ANTHROPIC_API_KEY → template explanations. No SMS/Telegram keys → alerts are logged as `simulated` and shown in the alert feed. The demo must never break because a key is missing.
-5. Thresholds live in `backend/app/thresholds.json`, not in code.
+2. **Safety wins.** Official warnings and community hazard reports can only raise risk, never lower it. Reports raise it to CAUTION at most, and only once another fisher confirms them.
+3. **SOS works without the backend.** The app sends SOS via device SMS first; the backend call is best-effort. It needs a phone signal, and the message always says how good the position is; never present the home harbour as the boat's position.
+4. **Unknown is never SAFE.** Missing, stale (over 3 hours) or absent forecast data is CAUTION at best. A fallback value must be labelled as one.
+5. **Everything works without API keys.** No ANTHROPIC_API_KEY → template explanations. No SMS/Telegram keys → alerts are logged as `simulated` and shown in the alert feed. The demo must never break because a key is missing.
+6. Thresholds live in `backend/app/thresholds.json`, not in code.
+7. **Positions are private.** Boat positions, phone numbers and alert messages are only returned with the admin key or to the fisher they belong to.
+8. **The assistant proposes, the server decides.** The voice assistant (`services/assistant.py`) may only pick an allow-listed action; the server re-runs the risk engine and never schedules UNSAFE hours. Facts in action replies are written by the server. Its RAG corpus (`services/rag.py`) holds only the asking fisher's own rows plus public data, never phone numbers, tokens or other fishers' positions; text written by other people is marked untrusted and fenced.
+9. **Emergencies skip everything.** Distress messages bypass rate limits, the injection screen and the LLM, and get the SOS instructions at once. SOS and trip endpoints are never rate limited.
+10. **Auto-SOS is slow on purpose.** Timings live in `thresholds.json` → `escalation`; the logic is pure and tested in `services/escalation.py`. Never shorten them to make a demo snappier: use `/demo/trips/{id}/lose-signal`.
 
 ## Commands
 - Backend: `cd backend && python -m venv .venv && .venv/Scripts/pip install -r requirements.txt && .venv/Scripts/uvicorn app.main:app --reload --host 0.0.0.0 --port 8001`
@@ -25,4 +30,6 @@ Product spec and feature priorities: [SEA-SAFE-PLAN.md](SEA-SAFE-PLAN.md). Read 
 ## Conventions
 - Times: store UTC; convert using Open-Meteo's `utc_offset_seconds` for display.
 - Languages: `en`, `ml` (Malayalam) required; `ta`, `hi`, `ar` optional. UI strings in `mobile/src/i18n/`.
-- Out of scope (do not build): market prices, maritime boundary alerts, IVR, gamification, chat.
+- LLM calls go through `services/llm.py` (rotating Groq/Gemini key pool). Each call is stateless and carries its full context, so any key can serve it.
+- Voice assistant is English-only for now; Malayalam UI strings fall back to English where untranslated (`ml.ts` is `Partial<Strings>`).
+- Out of scope (do not build): market prices, maritime boundary alerts, IVR, gamification. (Community chat and events are now in scope: `services/social.py`.)

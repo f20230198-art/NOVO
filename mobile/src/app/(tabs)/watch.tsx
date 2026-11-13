@@ -4,7 +4,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 're
 
 import { LeafletMap, type MapMarker } from '../../components/LeafletMap';
 import { Banner, BigButton, Card, Field, Screen, SectionTitle } from '../../components/ui';
-import { api } from '../../lib/api';
+import { ApiError, api } from '../../lib/api';
 import { formatDuration } from '../../lib/format';
 import { getWorkingPosition, type Point } from '../../lib/location';
 import { useApp } from '../../lib/store';
@@ -12,7 +12,7 @@ import { REPORT_TYPES, TOUCH, colors, reportIcon } from '../../lib/theme';
 import type { Report, ReportType } from '../../lib/types';
 
 export default function SeaWatch() {
-  const { profile, t } = useApp();
+  const { profile, t, ensureRegistered } = useApp();
   const router = useRouter();
   const params = useLocalSearchParams<{ report?: string }>();
 
@@ -25,7 +25,7 @@ export default function SeaWatch() {
   const [sheet, setSheet] = useState(false);
   const [type, setType] = useState<ReportType | null>(null);
   const [note, setNote] = useState('');
-  const [anonymous, setAnonymous] = useState(false);
+  const [anonymous, setAnonymous] = useState(true); // private by default: a fisher opts in to showing their name
   const [sending, setSending] = useState(false);
 
   const homeLat = profile?.home_lat;
@@ -80,14 +80,18 @@ export default function SeaWatch() {
     [reports, t],
   );
 
+  // Reports and votes come from registered fishers only: one vote each, so nobody can
+  // bury a real hazard or push a made-up one on their own.
   const vote = async (report: Report, dir: 'up' | 'down') => {
     try {
+      if (!profile?.token && !(await ensureRegistered())) throw new ApiError('offline', 0, true);
       const updated = await api.voteReport(report.id, dir);
       setReports((list) =>
         updated.hidden ? list.filter((r) => r.id !== report.id) : list.map((r) => (r.id === report.id ? { ...r, up: updated.up, down: updated.down } : r)),
       );
-    } catch {
-      setNotice({ text: t('noConnection'), tone: 'warn' });
+    } catch (err) {
+      const own = err instanceof ApiError && err.status === 403;
+      setNotice({ text: own ? t('ownReport') : t('noConnection'), tone: 'warn' });
     }
   };
 
@@ -96,6 +100,7 @@ export default function SeaWatch() {
     setSending(true);
     const position = home ? await getWorkingPosition(home) : origin;
     try {
+      if (!profile?.token && !(await ensureRegistered())) throw new ApiError('offline', 0, true);
       await api.createReport(type, position.lat, position.lon, note.trim(), anonymous);
       setSheet(false);
       setType(null);
@@ -103,8 +108,9 @@ export default function SeaWatch() {
       setNotice({ text: t('reportSent'), tone: 'info' });
       setFocus(position);
       void load();
-    } catch {
-      setNotice({ text: t('reportFailed'), tone: 'warn' });
+    } catch (err) {
+      const tooMany = err instanceof ApiError && err.status === 429;
+      setNotice({ text: tooMany ? t('tooManyReports') : t('reportFailed'), tone: 'warn' });
       setSheet(false);
     } finally {
       setSending(false);

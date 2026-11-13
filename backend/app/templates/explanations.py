@@ -56,7 +56,9 @@ REASON = {
         "official_warning": "Official warning in force: {detail}.",
         "reports": "{count} fisher report(s) nearby: {detail}.",
         "reports_rough": "{count} fishers nearby report rough conditions: {detail}.",
+        "reports_unconfirmed": "{count} fisher report(s) nearby, not yet confirmed by anyone else: {detail}.",
         "data_missing": "Sea data is missing for some hours.",
+        "data_stale": "The forecast could not be updated, so it may be out of date.",
         "no_window": "There is no safe stretch of 2 hours or more.",
     },
     "ml": {
@@ -70,7 +72,9 @@ REASON = {
         "official_warning": "ഔദ്യോഗിക മുന്നറിയിപ്പ് നിലവിലുണ്ട്: {detail}.",
         "reports": "സമീപത്ത് {count} മത്സ്യത്തൊഴിലാളി റിപ്പോർട്ട്: {detail}.",
         "reports_rough": "സമീപത്തുള്ള {count} മത്സ്യത്തൊഴിലാളികൾ കടൽ പ്രക്ഷുബ്ധമെന്ന് റിപ്പോർട്ട് ചെയ്തു: {detail}.",
+        "reports_unconfirmed": "സമീപത്ത് {count} മത്സ്യത്തൊഴിലാളി റിപ്പോർട്ട്, മറ്റാരും സ്ഥിരീകരിച്ചിട്ടില്ല: {detail}.",
         "data_missing": "ചില മണിക്കൂറുകളിലെ കടൽ വിവരം ലഭ്യമല്ല.",
+        "data_stale": "പ്രവചനം പുതുക്കാൻ കഴിഞ്ഞില്ല, വിവരം പഴയതായിരിക്കാം.",
         "no_window": "തുടർച്ചയായി 2 മണിക്കൂർ സുരക്ഷിതമായ സമയം ഇല്ല.",
     },
 }
@@ -105,17 +109,34 @@ SHORT = {
 
 ALERTS = {
     "en": {
-        "overdue_contact": "Sea Safe: {name} has not returned. Planned return {time}. Last location: {link}. Sea now: {level}, waves {waves} m.",
+        "overdue_contact": "Sea Safe: {name} has not returned. Planned return {time}. Last seen at {seen}: {link}. Sea now: {level}, waves {waves} m.",
+        "overdue_check": "Are you back? You are past your return time. Tap 'I'm back' or 'More time' now, or your contacts will be alerted.",
         "overdue_fisher": "You are past your return time. Your contacts have been alerted. Tap 'I'm back' when you are ashore.",
+        "all_clear": "Sea Safe: {name} is back safely ({time}). No action needed.",
+        "extended": "Sea Safe: {name} is OK and has added time at sea. New return time {time}.",
         "head_back": "Head back now: {reason}",
         "sos": "SOS from {name} ({boat}). Location: {link}. Time: {time}. Sent by Sea Safe.",
+        "sos_last_known": "SOS from {name} ({boat}). No GPS fix right now. LAST KNOWN position: {link}. Time: {time}. Sent by Sea Safe.",
+        "sos_home": "SOS from {name} ({boat}). POSITION UNKNOWN. Home harbour: {link}. Time: {time}. Sent by Sea Safe.",
         "morning_recheck": "Forecast changed overnight. Today is now {verdict} for your boat (it was {old}). Check Sea Safe before you leave.",
+        "auto_sos": "AUTOMATIC SOS from Sea Safe: {name} ({boat}) has not come back from sea and cannot be reached. "
+                    "Planned return {time}, now {late} late. Last signal from the phone: {seen}. "
+                    "Last known position, {km} km out: {link}. Please call the Coast Guard on 1554 and give them this position.",
+        "auto_sos_fisher": "Sea Safe has sent an automatic SOS to your contacts because you are {late} late with no signal. Tap 'I'm back' as soon as you are safe.",
+        "trip_reminder": "Your trip at {time}: the sea is now {verdict} for your boat. {extra}",
+        "trip_reminder_unsafe": "Do not go. The planned hours are now UNSAFE: {reason}",
+        "trip_reminder_ok": "Open Sea Safe and tap Start when you leave.",
     },
     "ml": {
-        "overdue_contact": "Sea Safe: {name} തിരിച്ചെത്തിയിട്ടില്ല. മടങ്ങേണ്ട സമയം {time}. അവസാന സ്ഥാനം: {link}. കടൽ ഇപ്പോൾ: {level}, തിരമാല {waves} മീറ്റർ.",
+        "overdue_contact": "Sea Safe: {name} തിരിച്ചെത്തിയിട്ടില്ല. മടങ്ങേണ്ട സമയം {time}. അവസാനം കണ്ടത് {seen}: {link}. കടൽ ഇപ്പോൾ: {level}, തിരമാല {waves} മീറ്റർ.",
+        "overdue_check": "തിരിച്ചെത്തിയോ? മടങ്ങേണ്ട സമയം കഴിഞ്ഞു. ഇപ്പോൾ 'തിരിച്ചെത്തി' അല്ലെങ്കിൽ 'കൂടുതൽ സമയം' അമർത്തുക, ഇല്ലെങ്കിൽ ബന്ധുക്കളെ അറിയിക്കും.",
+        "all_clear": "Sea Safe: {name} സുരക്ഷിതമായി തിരിച്ചെത്തി ({time}). ഒന്നും ചെയ്യേണ്ടതില്ല.",
+        "extended": "Sea Safe: {name} സുരക്ഷിതനാണ്, കടലിൽ കൂടുതൽ സമയം എടുക്കുന്നു. പുതിയ മടക്ക സമയം {time}.",
         "overdue_fisher": "മടങ്ങേണ്ട സമയം കഴിഞ്ഞു. നിങ്ങളുടെ ബന്ധുക്കളെ അറിയിച്ചിട്ടുണ്ട്. കരയിലെത്തിയാൽ 'തിരിച്ചെത്തി' അമർത്തുക.",
         "head_back": "ഉടൻ മടങ്ങുക: {reason}",
         "sos": "SOS: {name} ({boat}) അപകടത്തിൽ. സ്ഥാനം: {link}. സമയം: {time}. Sea Safe അയച്ചത്.",
+        "sos_last_known": "SOS: {name} ({boat}) അപകടത്തിൽ. ഇപ്പോൾ GPS ലഭ്യമല്ല. അവസാനം അറിഞ്ഞ സ്ഥാനം: {link}. സമയം: {time}. Sea Safe അയച്ചത്.",
+        "sos_home": "SOS: {name} ({boat}) അപകടത്തിൽ. സ്ഥാനം അറിയില്ല. ഹാർബർ: {link}. സമയം: {time}. Sea Safe അയച്ചത്.",
         "morning_recheck": "രാത്രിയിൽ പ്രവചനം മാറി. ഇന്ന് നിങ്ങളുടെ വള്ളത്തിന് {verdict} (മുമ്പ് {old}). പുറപ്പെടും മുമ്പ് Sea Safe നോക്കുക.",
     },
 }
@@ -221,5 +242,22 @@ def detect_day(question: str) -> int:
     return 0
 
 
+def alert_lang(key: str, language: str) -> str:
+    """The language an alert is actually written in: English when this one is not translated
+    yet, so the words filled into it (times, boat type) must be formatted in English too."""
+    lang = lang_of(language)
+    return lang if key in ALERTS[lang] else "en"
+
+
 def alert_text(key: str, language: str, **kwargs) -> str:
-    return ALERTS[lang_of(language)][key].format(**kwargs)
+    template = ALERTS[lang_of(language)].get(key) or ALERTS["en"][key]  # untranslated keys fall back to English
+    return template.format(**kwargs)
+
+
+def fmt_duration(minutes: float) -> str:
+    """'2 h 15 min' / '40 min'."""
+    m = max(0, int(round(minutes)))
+    h, m = divmod(m, 60)
+    if h and m:
+        return f"{h} h {m} min"
+    return f"{h} h" if h else f"{m} min"

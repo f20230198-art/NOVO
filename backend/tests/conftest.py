@@ -4,10 +4,12 @@ import tempfile
 
 _db = os.path.join(tempfile.mkdtemp(prefix="seasafe-test-"), "test.db")
 os.environ["DATABASE_URL"] = f"sqlite:///{_db}"
-os.environ["ANTHROPIC_API_KEY"] = ""
-os.environ["TWILIO_SID"] = ""
-os.environ["TWILIO_TOKEN"] = ""
-os.environ["TWILIO_FROM"] = ""
-os.environ["TELEGRAM_BOT_TOKEN"] = ""
+for _name in (
+    "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GEMINI_API_KEYS",
+    "GROQ_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3", "GROQ_API_KEY_4", "GROQ_API_KEYS", "LLM_MODEL",
+    "TWILIO_SID", "TWILIO_TOKEN", "TWILIO_FROM", "TELEGRAM_BOT_TOKEN",
+):
+    os.environ[_name] = ""
 os.environ["ADMIN_KEY"] = "test-admin"
 os.environ["SEASAFE_DISABLE_MONITOR"] = "1"
+os.environ["DEMO_MODE"] = "true"

@@ -7,7 +7,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from ..db import as_utc, iso_utc, utcnow
-from ..models import Report, User, Warning
+from ..models import Report, User, Vote, Warning
 from .risk_engine import haversine_km
 
 REPORT_EXPIRY_HOURS = {
@@ -21,6 +21,14 @@ REPORT_EXPIRY_HOURS = {
     "no_fish": 24,
 }
 HIDE_AT_NET_DOWN = 3  # a report with down - up >= 3 is hidden
+# A call for help or a storm is never hidden by votes: wrongly hiding one costs far more
+# than wrongly showing one for the few hours it lasts.
+NEVER_HIDDEN = {"boat_in_trouble", "storm"}
+MAX_REPORTS_PER_HOUR = 5
+# Decimal places of the position shown to other people (2 is about 1 km, 1 is about 11 km).
+# None = exact: these two are only useful with the real spot. Catch information is the most
+# sensitive, so it is the most blurred. The risk engine always uses the exact position.
+POSITION_DECIMALS = {"harbour_mouth_rough": None, "boat_in_trouble": None, "no_fish": 1}
 
 
 def create_report(
@@ -48,7 +56,9 @@ def create_report(
 
 def is_visible(report: Report, now: Optional[datetime] = None) -> bool:
     now = now or utcnow()
-    return report.expires_at > now and (report.down - report.up) < HIDE_AT_NET_DOWN
+    if report.expires_at <= now:
+        return False
+    return report.type in NEVER_HIDDEN or (report.down - report.up) < HIDE_AT_NET_DOWN
 
 
 def nearby_reports(
@@ -71,20 +81,53 @@ def nearby_reports(
     return out
 
 
-def vote(session: Session, report_id: int, direction: str) -> Optional[Report]:
+def reports_in_last_hour(session: Session, user_id: int, now: Optional[datetime] = None) -> int:
+    now = now or utcnow()
+    rows = session.exec(select(Report).where(Report.user_id == user_id, Report.created_at > now - timedelta(hours=1))).all()
+    return len(rows)
+
+
+def vote(session: Session, report_id: int, user_id: int, direction: str) -> Optional[Report]:
+    """One vote per fisher per report. Voting again the other way moves the vote.
+
+    Raises PermissionError when the fisher votes on their own report.
+    """
+    if direction not in ("up", "down"):
+        raise ValueError("dir must be 'up' or 'down'")
     report = session.get(Report, report_id)
     if report is None:
         return None
+    if report.user_id == user_id:
+        raise PermissionError("You cannot vote on your own report")
+
+    existing = session.exec(select(Vote).where(Vote.report_id == report_id, Vote.user_id == user_id)).first()
+    if existing is None:
+        session.add(Vote(report_id=report_id, user_id=user_id, dir=direction))
+    elif existing.dir != direction:
+        if existing.dir == "up":
+            report.up = max(0, report.up - 1)
+        else:
+            report.down = max(0, report.down - 1)
+        existing.dir = direction
+        session.add(existing)
+    else:
+        return report  # same vote again: nothing changes
     if direction == "up":
         report.up += 1
-    elif direction == "down":
-        report.down += 1
     else:
-        raise ValueError("dir must be 'up' or 'down'")
+        report.down += 1
     session.add(report)
     session.commit()
     session.refresh(report)
     return report
+
+
+def _public_position(report: Report) -> tuple[float, float]:
+    """Where the report is shown. Rounded so it does not pinpoint where the reporter was fishing."""
+    places = POSITION_DECIMALS.get(report.type, 2)
+    if places is None:
+        return report.lat, report.lon
+    return round(report.lat, places), round(report.lon, places)
 
 
 def report_out(session: Session, report: Report, distance_km: Optional[float] = None) -> dict:
@@ -94,11 +137,12 @@ def report_out(session: Session, report: Report, distance_km: Optional[float] = 
         name = user.name if user else None
     total = (report.expires_at - report.created_at).total_seconds() or 1
     left = (report.expires_at - utcnow()).total_seconds()
+    lat, lon = _public_position(report)
     return {
         "id": report.id,
         "type": report.type,
-        "lat": report.lat,
-        "lon": report.lon,
+        "lat": lat,
+        "lon": lon,
         "note": report.note,
         "anonymous": report.anonymous,
         "reporter": name,
@@ -115,7 +159,7 @@ def report_for_engine(report: Report) -> dict:
     return {
         "type": report.type, "lat": report.lat, "lon": report.lon,
         "created_at": as_utc(report.created_at), "expires_at": as_utc(report.expires_at),
-        "up": report.up, "down": report.down,
+        "up": report.up, "down": report.down, "user_id": report.user_id,
     }
 
 

@@ -31,10 +31,10 @@ def warning(start_hour=0, hours=24, lat=POINT[0], lon=POINT[1], radius=50):
             "starts_at": start, "expires_at": start + timedelta(hours=hours)}
 
 
-def report(type="rough_sea", up=0, down=0, lat=POINT[0], lon=POINT[1], created_hour=6, hours=6):
+def report(type="rough_sea", up=0, down=0, lat=POINT[0], lon=POINT[1], created_hour=6, hours=6, user_id=1):
     created = datetime(2026, 11, 12, created_hour, tzinfo=IST)
     return {"type": type, "lat": lat, "lon": lon, "created_at": created,
-            "expires_at": created + timedelta(hours=hours), "up": up, "down": down}
+            "expires_at": created + timedelta(hours=hours), "up": up, "down": down, "user_id": user_id}
 
 
 # ---- threshold boundaries, per boat type -------------------------------------------------
@@ -135,12 +135,33 @@ def test_warning_outside_time_or_area_does_not_apply():
 
 # ---- community reports ----------------------------------------------------------------------
 
-def test_report_raises_safe_to_caution():
-    assert level("mechanised", reports=[report()], point=POINT) == CAUTION
+def test_confirmed_report_raises_safe_to_caution():
+    assert level("mechanised", reports=[report(up=1)], point=POINT) == CAUTION                           # someone confirmed it
+    assert level("mechanised", reports=[report(user_id=1), report(user_id=2)], point=POINT) == CAUTION   # two fishers agree
+
+
+def test_one_unconfirmed_report_is_shown_but_changes_nothing():
+    hour = re.evaluate_hour(row(), "mechanised", TH, None, [report()], POINT)
+    assert hour.level == SAFE
+    assert hour.reasons[0].text_key == "reports_unconfirmed" and hour.reasons[0].level == SAFE
+    # The same fisher posting twice is still one voice.
+    assert level("mechanised", reports=[report(user_id=7), report("storm", user_id=7)], point=POINT) == SAFE
+
+
+def test_stale_forecast_is_never_safe():
+    assert level("mechanised") == SAFE
+    hour = re.evaluate_hour(row(), "mechanised", TH, data_stale=True)
+    assert hour.level == CAUTION and hour.reasons[0].factor == "data_stale"
+    assert re.evaluate_hour(row(wave_height=4.0), "mechanised", TH, data_stale=True).level == UNSAFE
+
+
+def test_trip_check_without_forecast_is_not_safe():
+    check = re.trip_check([], datetime(2026, 11, 12, 9, 10, tzinfo=IST))
+    assert check["level"] == CAUTION and check["reasons"][0].factor == "data_missing"
 
 
 def test_many_reports_stay_caution():
-    reports = [report("rough_sea"), report("storm"), report("harbour_mouth_rough")]
+    reports = [report("rough_sea", user_id=1), report("storm", user_id=2), report("harbour_mouth_rough", user_id=3)]
     hour = re.evaluate_hour(row(), "mechanised", TH, None, reports, POINT)
     assert hour.level == CAUTION
     assert hour.reasons[0].text_key == "reports_rough" and hour.reasons[0].value == 3

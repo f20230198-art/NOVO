@@ -91,6 +91,7 @@ export type Forecast = {
   generated_at: string;
   fetched_at: string;
   stale: boolean;
+  age_minutes?: number;
   scenario: string;
   days: DaySummary[];
   hourly: HourRisk[];
@@ -126,8 +127,63 @@ export type Trip = {
   start_lon: number;
   last_lat: number | null;
   last_lon: number | null;
+  last_ping_at: string | null;
+  /** False while the fisher is still being asked "are you back?" before the family is told. */
+  contacts_alerted: boolean;
   forecast_snapshot: HourRisk[];
   head_back: { message: string; created_at: string } | null;
+  max_offshore_km?: number;
+  auto_sos_sent?: boolean;
+  /** When each step happens if there is no word from the fisher. */
+  escalation?: {
+    ask_at: string;
+    contacts_at: string;
+    auto_sos_at: string;
+    offshore_km: number;
+    signal_silent_minutes: number;
+  };
+};
+
+export type ScheduledTrip = {
+  id: number;
+  status: 'proposed' | 'scheduled' | 'started' | 'cancelled' | 'expired';
+  verdict: Level;
+  note: string;
+  depart_at: string;
+  return_at: string;
+  depart_label: string;
+  return_label: string;
+  day_label: string;
+};
+
+export type AssistantAction = 'none' | 'schedule_trip' | 'confirm_schedule' | 'cancel_schedule' | 'sos_help';
+
+export type AssistantReply = {
+  reply: string;
+  action: AssistantAction;
+  proposal: ScheduledTrip | null;
+  scheduled: ScheduledTrip[];
+  source: 'ai' | 'rules' | 'guard';
+  today: { verdict: Level; short_answer: string };
+};
+
+export type AssistantTurn = { id: number | string; role: 'user' | 'assistant'; text: string; created_at?: string };
+
+export type ChatMessage = { id: number; channel: string; text: string; author: string; mine: boolean; created_at: string };
+
+export type CommunityEvent = {
+  id: number;
+  title: string;
+  description: string;
+  kind: string;
+  place_name: string;
+  starts_at: string;
+  organiser: string | null;
+  is_organiser: boolean;
+  going_count: number;
+  going: boolean;
+  distance_km: number | null;
+  channel: string;
 };
 
 export type Contact = { id?: number; name: string; phone: string; relation: string };

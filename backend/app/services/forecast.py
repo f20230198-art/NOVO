@@ -124,7 +124,9 @@ def _merge(marine: dict, weather: dict) -> tuple[list[dict], int]:
 async def _fetch(lat: float, lon: float) -> dict:
     async with httpx.AsyncClient(timeout=10) as client:
         slat, slon, marine = await find_sea_point(client, lat, lon)
-        weather = await _get_json(client, WEATHER_URL.format(lat=lat, lon=lon))
+        # Wind at the sea point, not at the harbour: wind over land reads lower than at sea,
+        # which would make the verdict too optimistic.
+        weather = await _get_json(client, WEATHER_URL.format(lat=slat, lon=slon))
     rows, offset = _merge(marine, weather)
     if not rows:
         raise ForecastUnavailable("empty forecast")
@@ -246,6 +248,9 @@ async def get_forecast(lat: float, lon: float) -> dict:
 
     tz = timezone(timedelta(seconds=data["utc_offset_seconds"]))
     out = dict(data)
+    # How old the data is. The advisor stops calling anything SAFE once this passes
+    # `stale_forecast_minutes` in thresholds.json.
+    out["age_minutes"] = max(0, int((datetime.now(timezone.utc) - data["fetched_at"]).total_seconds() // 60))
     out["scenario"] = _scenario
     out["rows"] = apply_scenario(data["rows"], _scenario, _scenario_set_at.astimezone(tz))
     return out

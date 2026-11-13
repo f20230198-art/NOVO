@@ -7,7 +7,7 @@ import { HourDetail, HourStrip, LevelPill, ReasonList, VerdictCard } from '../..
 import { Banner, BigButton, Card, Disclaimer, SectionTitle } from '../../components/ui';
 import { api } from '../../lib/api';
 import { formatClock, formatDay } from '../../lib/format';
-import { speak, startListening, stopSpeaking, voiceInputAvailable } from '../../lib/speech';
+import { canSpeak, speak, startListening, stopSpeaking, voiceInputAvailable } from '../../lib/speech';
 import { loadJson, saveJson, useApp } from '../../lib/store';
 import { TOUCH, colors, levelColor, levelInk } from '../../lib/theme';
 import type { Advice, Forecast, HourRisk } from '../../lib/types';
@@ -36,7 +36,10 @@ export default function Home() {
   const stopRef = useRef<(() => void) | null>(null);
   const heardRef = useRef('');
   const releasedRef = useRef(false);
+  const explainedRef = useRef(false);
   const canUseVoice = useMemo(() => voiceInputAvailable(), []);
+  // The answer is spoken with the phone's own voices. Warn when it has none for this language.
+  const [voiceMissing, setVoiceMissing] = useState(false);
 
   const boat = profile?.boat_type;
   const lang = profile?.language;
@@ -83,6 +86,14 @@ export default function Home() {
 
   useEffect(() => () => stopSpeaking(), []);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (lang) void canSpeak(lang).then((ok) => !cancelled && setVoiceMissing(!ok));
+    return () => {
+      cancelled = true;
+    };
+  }, [lang]);
+
   const ask = useCallback(
     async (text: string) => {
       const q = text.trim();
@@ -97,12 +108,40 @@ export default function Home() {
         setOffline(false);
         speak(result.answer, profile.language);
       } catch {
-        setAskError(t('noConnection'));
+        // No signal: answer from the forecast saved on this phone instead of going silent.
+        // The verdict and times were computed by the risk engine when it was saved.
+        const saved = forecast ?? (await loadJson<Cached>(CACHE_KEY))?.forecast ?? null;
+        const savedFor = savedAt ? formatClock(new Date(savedAt)) : null;
+        const lower = q.toLowerCase();
+        const dayIndex = lower.includes('day after') || q.includes('മറ്റന്നാൾ') ? 2 : lower.includes('tomorrow') || q.includes('നാളെ') ? 1 : 0;
+        const day = saved && saved.boat_type === profile.boat_type ? saved.days[dayIndex] : undefined;
+        if (saved && day && savedFor) {
+          const answer = `${[t('today'), t('tomorrow'), t('dayAfter')][dayIndex]}: ${day.short_answer} ${t('offlineAnswer', { time: savedFor })} ${saved.advisory}`;
+          setAdvice({
+            ...saved,
+            question: q,
+            day_index: dayIndex,
+            date: day.date,
+            verdict: day.verdict,
+            verdict_word: day.verdict_word,
+            window: day.window,
+            return_by: day.return_by,
+            confidence: 'low',
+            reasons: day.reasons,
+            answer,
+            short_answer: day.short_answer,
+            source: 'template',
+          });
+          setOffline(true);
+          speak(answer, profile.language);
+        } else {
+          setAskError(t('noConnection'));
+        }
       } finally {
         setAsking(false);
       }
     },
-    [profile, t],
+    [profile, t, forecast, savedAt],
   );
 
   const micDown = async () => {
@@ -110,6 +149,7 @@ export default function Home() {
     stopSpeaking();
     setAskError(null);
     heardRef.current = '';
+    explainedRef.current = false;
     releasedRef.current = false;
     setQuestion('');
     setListening(true);
@@ -122,10 +162,15 @@ export default function Home() {
         stopRef.current = null;
         setListening(false);
         if (heardRef.current.trim()) void ask(heardRef.current);
-        else setAskError(t('didNotHear'));
+        else if (!explainedRef.current) setAskError(t('didNotHear'));
       },
       onError: (code) => {
+        // Say what went wrong, so the fisher knows whether to try again or type instead.
         if (code === 'not-allowed') setAskError(t('micDenied'));
+        else if (code === 'network') setAskError(t('voiceNeedsNetwork'));
+        else if (code === 'language-not-supported' || code === 'service-not-allowed') setAskError(t('voiceLanguageMissing'));
+        else return;
+        explainedRef.current = true; // keep this message: "did not hear" would hide the real cause
       },
     });
     if (!stop) {
@@ -175,7 +220,9 @@ export default function Home() {
       >
         {offline && savedAt ? <Banner icon="📴" text={t('offlineBanner', { time: formatClock(new Date(savedAt)) })} /> : null}
         {offline && !forecast && !loading ? <Banner icon="📴" tone="warn" text={t('noConnection')} /> : null}
-        {!offline && forecast?.stale ? <Banner icon="⏳" tone="warn" text={t('staleBanner')} /> : null}
+        {!offline && forecast?.stale ? (
+          <Banner icon="⏳" tone="warn" text={(forecast.age_minutes ?? 0) > 180 ? t('staleOldBanner') : t('staleBanner')} />
+        ) : null}
         {forecast && forecast.scenario !== 'real' ? <Banner icon="🎬" text={t('demoBanner', { mode: forecast.scenario })} /> : null}
 
         {forecast?.warnings.map((w) => (
@@ -214,6 +261,7 @@ export default function Home() {
           </Pressable>
           <Text style={styles.micLabel}>{asking ? t('thinking') : listening ? t('listening') : t('holdToAsk')}</Text>
           {!canUseVoice ? <Text style={styles.small}>{t('voiceUnavailable')}</Text> : null}
+          {voiceMissing ? <Text style={styles.small}>🔇 {t('voiceOutputMissing')}</Text> : null}
 
           <Text style={styles.small}>{t('typeQuestion')}</Text>
           <View style={styles.askRow}>

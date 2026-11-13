@@ -1,32 +1,30 @@
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..deps import optional_user
+from ..deps import current_user, require_admin
 from ..models import Alert, User
 from ..services.notify import alert_out
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 
-@router.get("/recent")
+@router.get("/recent", dependencies=[Depends(require_admin)])
 def recent(limit: int = Query(default=50, ge=1, le=200), session: Session = Depends(get_session)):
-    """Latest alerts across all users, including simulated ones. The dashboard feed."""
+    """Latest alerts across all users, including simulated ones. The dashboard feed.
+
+    Admin key required: the messages carry names and map links.
+    """
     rows = session.exec(select(Alert).order_by(Alert.id.desc()).limit(limit)).all()  # type: ignore[union-attr]
     return [alert_out(a) for a in rows]
 
 
 @router.get("")
 def for_user(
-    user_id: Optional[int] = None,
     limit: int = Query(default=50, ge=1, le=200),
-    user: Optional[User] = Depends(optional_user),
+    user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
-    uid = user_id if user_id is not None else (user.id if user else None)
-    if uid is None:
-        raise HTTPException(status_code=422, detail="user_id or X-User-Token is required")
-    rows = session.exec(select(Alert).where(Alert.user_id == uid).order_by(Alert.id.desc()).limit(limit)).all()  # type: ignore[union-attr]
+    """The signed-in fisher's own alerts. There is no way to ask for another user's."""
+    rows = session.exec(select(Alert).where(Alert.user_id == user.id).order_by(Alert.id.desc()).limit(limit)).all()  # type: ignore[union-attr]
     return [alert_out(a) for a in rows]

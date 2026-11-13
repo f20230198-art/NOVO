@@ -1,4 +1,18 @@
-import type { Advice, BoatType, Contact, Forecast, Profile, Report, ReportType, Trip } from './types';
+import type {
+  Advice,
+  AssistantReply,
+  AssistantTurn,
+  BoatType,
+  ChatMessage,
+  CommunityEvent,
+  Contact,
+  Forecast,
+  Profile,
+  Report,
+  ReportType,
+  ScheduledTrip,
+  Trip,
+} from './types';
 
 const DEFAULT_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:8001';
 
@@ -19,10 +33,12 @@ export function setToken(token: string | undefined) {
 export class ApiError extends Error {
   status: number;
   offline: boolean;
-  constructor(message: string, status = 0, offline = false) {
+  retryAfter: number;
+  constructor(message: string, status = 0, offline = false, retryAfter = 0) {
     super(message);
     this.status = status;
     this.offline = offline;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -47,7 +63,7 @@ async function request<T>(path: string, options: { method?: string; body?: unkno
       } catch {
         // keep the generic message
       }
-      throw new ApiError(detail, resp.status);
+      throw new ApiError(detail, resp.status, false, Number(resp.headers.get('retry-after') ?? 0) || 0);
     }
     return (await resp.json()) as T;
   } catch (err) {
@@ -103,8 +119,13 @@ export const api = {
   activeTrip: () => request<{ trip: Trip | null }>('/trips/active'),
   pingTrip: (id: number, lat: number, lon: number) =>
     request<Trip>(`/trips/${id}/ping`, { method: 'POST', body: { lat, lon } }),
+  uploadTrack: (id: number, points: { lat: number; lon: number; at: string }[]) =>
+    request<Trip>(`/trips/${id}/track`, { method: 'POST', body: { points } }),
   endTrip: (id: number) => request<Trip>(`/trips/${id}/end`, { method: 'POST' }),
-  sos: (lat: number, lon: number) => request<unknown>('/trips/sos', { method: 'POST', body: { lat, lon }, timeoutMs: 8000 }),
+  extendTrip: (id: number, minutes: number) =>
+    request<Trip>(`/trips/${id}/extend`, { method: 'POST', body: { minutes } }),
+  sos: (lat: number, lon: number, fix: 'gps' | 'last_known' | 'home' = 'gps') =>
+    request<unknown>('/trips/sos', { method: 'POST', body: { lat, lon, fix }, timeoutMs: 8000 }),
 
   reports: (lat: number, lon: number, radiusKm = 25) =>
     request<Report[]>(`/reports${query({ lat, lon, radius_km: radiusKm })}`),
@@ -113,8 +134,31 @@ export const api = {
   voteReport: (id: number, dir: 'up' | 'down') =>
     request<Report>(`/reports/${id}/vote`, { method: 'POST', body: { dir } }),
 
+  assistantChat: (message: string) =>
+    request<AssistantReply>('/assistant/chat', { method: 'POST', body: { message }, timeoutMs: 30000 }),
+  assistantHistory: () => request<AssistantTurn[]>('/assistant/history'),
+  clearAssistantHistory: () => request<{ ok: boolean }>('/assistant/history', { method: 'DELETE' }),
+
+  scheduled: () => request<ScheduledTrip[]>('/schedule'),
+  confirmScheduled: (id: number) => request<ScheduledTrip>(`/schedule/${id}/confirm`, { method: 'POST' }),
+  cancelScheduled: (id: number) => request<ScheduledTrip>(`/schedule/${id}/cancel`, { method: 'POST' }),
+  startScheduled: (id: number, lat: number, lon: number) =>
+    request<Trip>(`/schedule/${id}/start`, { method: 'POST', body: { lat, lon } }),
+
+  messages: (channel: string, afterId = 0) =>
+    request<ChatMessage[]>(`/community/messages${query({ channel, after_id: afterId })}`),
+  postMessage: (channel: string, text: string) =>
+    request<ChatMessage>(`/community/messages${query({ channel })}`, { method: 'POST', body: { text } }),
+  flagMessage: (id: number) => request<{ ok: boolean; hidden: boolean }>(`/community/messages/${id}/flag`, { method: 'POST' }),
+  events: () => request<CommunityEvent[]>('/community/events'),
+  createEvent: (e: { title: string; description: string; kind: string; place_name: string; starts_at: string }) =>
+    request<CommunityEvent>('/community/events', { method: 'POST', body: e }),
+  rsvp: (id: number, going: boolean) =>
+    request<CommunityEvent>(`/community/events/${id}/rsvp`, { method: 'POST', body: { going } }),
+
   setScenario: (mode: string) => request<{ mode: string }>('/demo/scenario', { method: 'POST', body: { mode } }),
   seed: () => request<unknown>('/demo/seed', { method: 'POST' }),
   fastForward: (tripId: number) => request<unknown>(`/demo/trips/${tripId}/fast-forward`, { method: 'POST' }),
+  loseSignal: (tripId: number) => request<unknown>(`/demo/trips/${tripId}/lose-signal`, { method: 'POST' }),
   tick: () => request<{ checked: number; overdue: number; alerts: number }>('/demo/tick', { method: 'POST' }),
 };

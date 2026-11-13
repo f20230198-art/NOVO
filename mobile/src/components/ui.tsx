@@ -40,7 +40,7 @@ export function Screen({
           <Disclaimer />
         </ScrollView>
       ) : (
-        <View style={styles.flex}>{children}</View>
+        <View style={styles.fixedBody}>{children}</View>
       )}
     </SafeAreaView>
   );
@@ -184,6 +184,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   title: { fontSize: 26, fontWeight: '800', color: colors.ink, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8 },
   scrollBody: { paddingHorizontal: 16, paddingBottom: 150, gap: 14 },
+  fixedBody: { flex: 1, paddingHorizontal: 16, gap: 10 },
   disclaimer: { fontSize: 13, lineHeight: 18, color: colors.inkSoft, textAlign: 'center', marginTop: 6 },
   card: { backgroundColor: colors.card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: colors.line },
   section: { fontSize: 18, fontWeight: '700', color: colors.ink, marginBottom: 8 },
